@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    // Validation for User entity
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt']) 
+        && data.uid == request.auth.uid 
+        && data.email is string && data.email.size() <= 128
+        && data.updatedAt == request.time
+        && (data.get('weakTopics', []) is list)
+        && (data.get('identifiedMistakes', []) is list)
+        && (data.get('examPapersAnalysis', []) is list);
+    }
+
+    // Validation for Chat entity
+    function isValidChat(data) {
+      return data.keys().hasAll(['userId', 'role', 'text', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.role in ['user', 'model']
+        && data.text is string && data.text.size() <= 10000
+        && data.timestamp == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().keys().size() <= 10;
+      
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Action: Update progress/memory
+        (incoming().diff(existing()).affectedKeys().hasOnly(['weakTopics', 'identifiedMistakes', 'examPapersAnalysis', 'updatedAt'])
+         && incoming().uid == existing().uid && incoming().email == existing().email)
+      );
+
+      match /history/{msgId} {
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(msgId) && isValidChat(incoming());
+      }
+    }
+  }
+}
