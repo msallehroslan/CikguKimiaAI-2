@@ -93,7 +93,7 @@ When the user asks for "Kertas 2" or "Exam Mode":
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '10mb' }));
 
@@ -101,6 +101,7 @@ async function startServer() {
   if (!apiKey) {
     console.error("CRITICAL: GEMINI_API_KEY is not set in environment variables!");
   }
+  
   const ai = new GoogleGenAI({ 
     apiKey: apiKey || "MISSING_KEY",
     httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
@@ -124,16 +125,16 @@ async function startServer() {
         // Send typing indicator
         await ctx.sendChatAction("typing");
 
-        const chat = ai.chats.create({
+        const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
+          contents: userMessage,
           config: {
             systemInstruction: getSystemInstruction({}), // Global context for TG bot
             temperature: 0.7,
-          },
+          }
         });
 
-        const result = await chat.sendMessage({ message: [{ text: userMessage }] });
-        const responseText = result.text || "Maaf, Cikgu tidak dapat memproses soalan itu.";
+        const responseText = response.text || "Maaf, Cikgu tidak dapat memproses soalan itu.";
         // Simple markdown sanitization for TG (it doesn't support complex SVG/math as well as web, but we'll try)
         await ctx.reply(responseText.replace(/```svg[\s\S]*?```/g, "[Gambar Rajah - Sila rujuk aplikasi web untuk paparan penuh]"));
       } catch (error) {
@@ -230,12 +231,12 @@ async function startServer() {
         parts.push({ text: `Based on this conversation, update the student memory with weaknesses or insights.\n\nConversation:\n${conversation}` });
       }
 
-      const result = await ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: { parts }
       });
       
-      const text = (result.text || "").trim();
+      const text = (response.text || "").trim();
       res.json({ analysis: text === "NONE" ? null : text });
     } catch (error) {
       console.error("Analyze Error:", error);
