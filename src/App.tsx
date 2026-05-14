@@ -16,6 +16,7 @@ import { Topic } from "./constants";
 import { motion, AnimatePresence } from "motion/react";
 import { FirebaseProvider, useFirebase } from "./lib/FirebaseProvider";
 import { GraduationCap, LogIn, Sparkles } from "lucide-react";
+import { ConnectionStatus } from "./components/ConnectionStatus";
 
 function AppContent() {
   const { user, loading, signIn } = useFirebase();
@@ -91,6 +92,7 @@ function AppContent() {
           </motion.div>
         </AnimatePresence>
       </main>
+      <ConnectionStatus />
     </div>
   );
 }

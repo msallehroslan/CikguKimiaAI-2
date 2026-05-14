@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, User, ChevronLeft, Loader2, Sparkles, ImagePlus, X, Brain, FlaskConical, RefreshCw, ClipboardCheck, LogOut } from "lucide-react";
+import { Send, User, ChevronLeft, Loader2, Sparkles, ImagePlus, X, Brain, FlaskConical, RefreshCw, ClipboardCheck, LogOut, MessageCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -336,6 +336,15 @@ Sertakan peruntukan markah $[... markah]$ untuk setiap bahagian. Jangan berikan 
           >
             <Brain className="w-5 h-5" />
             <span className="text-xs font-bold hidden sm:inline">Memori Pelajar</span>
+          </button>
+
+          <button 
+            onClick={() => window.open('https://t.me/CikguKimiaSPMBot', '_blank')}
+            className="p-2 rounded-xl transition-all flex items-center gap-2 border bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100"
+            title="Hubungi Cikgu di Telegram"
+          >
+            <MessageCircle className="w-5 h-5" />
+            <span className="text-xs font-black hidden sm:inline uppercase">Telegram</span>
           </button>
 
           <button 

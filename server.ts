@@ -126,7 +126,7 @@ async function startServer() {
         await ctx.sendChatAction("typing");
 
         const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: "gemini-1.5-flash",
           contents: userMessage,
           config: {
             systemInstruction: getSystemInstruction({}), // Global context for TG bot
@@ -168,6 +168,16 @@ async function startServer() {
     console.log("TELEGRAM_BOT_TOKEN not found. Telegram integration disabled.");
   }
 
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      gemini: !!process.env.GEMINI_API_KEY,
+      telegram: !!process.env.TELEGRAM_BOT_TOKEN,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // API Route for streaming chat
   app.post("/api/chat", async (req, res) => {
     const { message, assets, memory } = req.body;
@@ -177,7 +187,7 @@ async function startServer() {
       res.setHeader('Transfer-Encoding', 'chunked');
 
       const chat = ai.chats.create({
-        model: "gemini-3-flash-preview",
+        model: "gemini-1.5-flash",
         config: {
           systemInstruction: getSystemInstruction(memory),
           temperature: 0.7,
@@ -232,7 +242,7 @@ async function startServer() {
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-1.5-flash",
         contents: { parts }
       });
       
