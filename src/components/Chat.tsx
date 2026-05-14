@@ -211,6 +211,7 @@ Sertakan peruntukan markah $[... markah]$ untuk setiap bahagian. Jangan berikan 
     try {
       await addDoc(collection(db, `users/${user.uid}/history`), {
         ...userMessage,
+        userId: user.uid,
         timestamp: serverTimestamp(),
         topicId: initialTopic?.id || "general"
       });
@@ -244,6 +245,7 @@ Sertakan peruntukan markah $[... markah]$ untuk setiap bahagian. Jangan berikan 
       await addDoc(collection(db, `users/${user.uid}/history`), {
         role: "model",
         text: fullResponse,
+        userId: user.uid,
         timestamp: serverTimestamp(),
         topicId: initialTopic?.id || "general"
       });
