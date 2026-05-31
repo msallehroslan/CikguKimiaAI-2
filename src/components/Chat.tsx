@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Send, User, X, ImagePlus, FlaskConical, RefreshCw, ClipboardCheck,
   LogOut, Atom, MoreVertical, Sparkles, Calculator, ListChecks, PencilLine, Beaker,
-  Menu, Trophy, BookOpen
+  Menu, Trophy, BookOpen, Camera
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -96,6 +96,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitial = useRef(false);
 
   const gemini = useMemo(() => new GeminiService(memory), [memory]);
@@ -1111,19 +1112,36 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
               multiple
               className="hidden"
             />
+            <input
+              type="file"
+              ref={cameraInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+            />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2.5 rounded-xl bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-all active:scale-95"
-                title="Muat naik gambar / PDF"
+                className="p-2.5 rounded-xl bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-all active:scale-95 shrink-0"
+                title="Muat naik fail/galeri"
               >
                 <ImagePlus className="w-5 h-5" />
               </button>
 
               <button
                 type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="p-2.5 rounded-xl bg-white text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition-all active:scale-95 shrink-0"
+                title="Guna Kamera Telefon"
+              >
+                <Camera className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowPeriodicTable(true)}
-                className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95"
+                className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95 shrink-0"
                 title="Buka Jadual Berkala"
               >
                 <Atom className="w-5 h-5" />

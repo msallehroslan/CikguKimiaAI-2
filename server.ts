@@ -20,9 +20,10 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { MARKING_SCHEME_TIPS } from "./src/constants/markingScheme.ts";
+import { SYLLABUS_TOPICS } from "./src/constants";
 import { Telegraf, Markup } from "telegraf";
 import { db } from "./src/lib/firebase";
-import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp, doc, setDoc, deleteDoc } from "firebase/firestore";
 
 import { SYLLABUS_KNOWLEDGE_BASE } from "./src/data/syllabus_kb.ts";
 
@@ -78,14 +79,27 @@ function parseGeminiError(error: any, defaultMsg: string): string {
   return defaultMsg;
 }
 
+const ADMIN_EMAILS = [
+  "msallehroslan@gmail.com",
+  "msallehroslan@gmail.form",
+  "salleh@ioteratechnologies.com"
+];
+
+function isAdmin(email?: string | null): boolean {
+  if (!email) return false;
+  return ADMIN_EMAILS.includes(email.toLowerCase());
+}
+
 // ─── RAG keyword index (pre-built at boot) ────────────────────────────────
 type KbEntry = (typeof SYLLABUS_KNOWLEDGE_BASE)[number];
 const kbByTopicId = new Map<string, KbEntry>();
 const kbKeywordIndex = new Map<string, KbEntry>();
 
-function buildKbIndex() {
+async function buildKbIndex() {
   kbByTopicId.clear();
   kbKeywordIndex.clear();
+  
+  // 1. Add static syllabus facts
   for (const t of SYLLABUS_KNOWLEDGE_BASE) {
     kbByTopicId.set(t.topicId, t);
     kbKeywordIndex.set(t.title.toLowerCase(), t);
@@ -93,7 +107,24 @@ function buildKbIndex() {
       if (k.length > 5) kbKeywordIndex.set(k.toLowerCase(), t);
     }
   }
-  console.log(`[KB] Indexed ${kbByTopicId.size} topics, ${kbKeywordIndex.size} keywords`);
+
+  // 2. Add custom knowledge base facts from Firestore
+  try {
+    const snap = await getDocs(collection(db, "custom_knowledge"));
+    snap.docs.forEach(d => {
+      const t = d.data() as KbEntry;
+      if (t && t.topicId && t.title) {
+        kbByTopicId.set(t.topicId, t);
+        kbKeywordIndex.set(t.title.toLowerCase(), t);
+        for (const k of t.keyPoints || []) {
+          if (k && k.length > 5) kbKeywordIndex.set(k.toLowerCase(), t);
+        }
+      }
+    });
+    console.log(`[KB] Indexed ${kbByTopicId.size} topics, ${kbKeywordIndex.size} keywords`);
+  } catch (err) {
+    console.error("[KB] Failed to load custom knowledge from Firestore:", err);
+  }
 }
 
 function ragMatch(userMessage?: string, selectedTopicId?: string): KbEntry | null {
@@ -180,8 +211,9 @@ function buildDynamicContext(args: {
   selectedTopicId?: string;
   userMessage?: string;
   platform?: "web" | "telegram";
+  customExams?: any[];
 }): string {
-  const { memory, selectedTopicId, userMessage, platform } = args;
+  const { memory, selectedTopicId, userMessage, platform, customExams } = args;
 
   const memBits: string[] = [];
   if (memory?.weakTopics?.length) memBits.push(`Student's weak topics: ${memory.weakTopics.join(", ")}`);
@@ -199,6 +231,19 @@ function buildDynamicContext(args: {
   if (ragBlock) pieces.push(ragBlock);
   if (memBits.length) pieces.push(`Student context:\n${memBits.join("\n")}`);
   if (platform === "telegram") pieces.push(TELEGRAM_TAIL);
+
+  if (customExams && customExams.length > 0) {
+    const examDescriptions = customExams.map(ex => {
+      return `[Exam Question ID: ${ex.id}, Topic: ${ex.topicId || "any"}, Paper Type: ${ex.paperType === "struct" ? "Kertas 2 - Struktur" : "Kertas 2 - Esei"}]
+Title: ${ex.title}
+Question:
+${ex.questionText}
+Marking Scheme / Expected Answers:
+${ex.markingScheme}`;
+    }).join("\n\n---\n\n");
+    
+    pieces.push(`ADMIN-DEFINED EXAM QUESTIONS POOL:\nUse the following exact exam questions when the student initiates an exam session or practice (e.g. topicId starts with "exam", like "exam-struct" or "exam-essay") or asks to do exam exercises related to the topic of these questions. Avoid generating generic questions if there are custom ones below matching the topic / requested paper type! Always grade and correct the student's answer using the specific Marking Scheme provided. Do NOT reveal the marking scheme or correct answers until the user makes their attempt.\n\n${examDescriptions}`);
+  }
 
   return pieces.join("\n\n");
 }
@@ -387,6 +432,292 @@ async function startServer() {
     }
   });
 
+  // ─── custom knowledge management (admin only) ───────────────────────────
+  app.get("/api/admin/knowledge", async (req, res) => {
+    const { email } = req.query as { email?: string };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const snap = await getDocs(collection(db, "custom_knowledge"));
+      const list = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      res.json({ success: true, list });
+    } catch (e: any) {
+      console.error("Fetch custom knowledge error:", e);
+      res.status(500).json({ error: e.message || "Failed to fetch custom knowledge" });
+    }
+  });
+
+  app.post("/api/admin/knowledge", async (req, res) => {
+    const { email, fact } = req.body as { email: string; fact: KbEntry };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    if (!fact || !fact.topicId || !fact.title || !fact.context) {
+      return res.status(400).json({ error: "Sila lengkapkan semua medan wajib (ID Topik, Tajuk, Konseptual)." });
+    }
+    try {
+      const docRef = doc(db, "custom_knowledge", fact.topicId);
+      await setDoc(docRef, {
+        topicId: fact.topicId,
+        title: fact.title,
+        context: fact.context,
+        keyPoints: fact.keyPoints || [],
+        updatedAt: serverTimestamp(),
+        updatedBy: email
+      });
+      // Rebuild the RAG index
+      await buildKbIndex();
+      res.json({ success: true, message: `Berjaya menambah/mengemaskini rujukan pintar bagi bab "${fact.title}". Minda Cikgu telah dikemaskini secara langsung!` });
+    } catch (e: any) {
+      console.error("Save custom knowledge error:", e);
+      res.status(500).json({ error: e.message || "Gagal menyimpan rujukan." });
+    }
+  });
+
+  app.delete("/api/admin/knowledge/:topicId", async (req, res) => {
+    const { email } = req.query as { email?: string };
+    const { topicId } = req.params;
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const docRef = doc(db, "custom_knowledge", topicId);
+      await deleteDoc(docRef);
+      // Rebuild the RAG index
+      await buildKbIndex();
+      res.json({ success: true, message: "Berjaya memadam rujukan dan membina semula index memori Cikgu." });
+    } catch (e: any) {
+      console.error("Delete custom knowledge error:", e);
+      res.status(500).json({ error: e.message || "Gagal memadam rujukan." });
+    }
+  });
+
+  // ─── admin student list (admin only) ───────────────────────────────────
+  app.get("/api/admin/users", async (req, res) => {
+    const { email } = req.query as { email?: string };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const snap = await getDocs(collection(db, "users"));
+      const list = snap.docs.map(doc => ({
+        uid: doc.id,
+        ...doc.data()
+      }));
+      res.json({ success: true, list });
+    } catch (e: any) {
+      console.error("Fetch users error:", e);
+      res.status(500).json({ error: e.message || "Failed to fetch student list." });
+    }
+  });
+
+  // ─── admin custom exams management (admin only) ─────────────────────────
+  app.get("/api/admin/exams", async (req, res) => {
+    const { email } = req.query as { email?: string };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const snap = await getDocs(collection(db, "custom_exams"));
+      const list = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      res.json({ success: true, list });
+    } catch (e: any) {
+      console.error("Fetch custom exams error:", e);
+      res.status(500).json({ error: e.message || "Failed to fetch custom exams." });
+    }
+  });
+
+  // AI-powered exam question analysis/ingest
+  app.post("/api/admin/exams/analyse", async (req, res) => {
+    const { email, questionText, assets } = req.body as {
+      email: string;
+      questionText?: string;
+      assets?: { mimeType: string; data: string }[];
+    };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const parts: any[] = [];
+      if (assets && assets.length > 0) {
+        for (const a of assets) {
+          parts.push({
+            inlineData: {
+              mimeType: a.mimeType,
+              data: a.data
+            }
+          });
+        }
+      }
+
+      const allowedTopicsPrompt = SYLLABUS_TOPICS.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
+
+      parts.push({
+        text: `You are Cikgu Kimia, an expert SPM Chemistry analyzer.
+Your task is to ingest and analyze an uploaded SPM Chemistry exam question (provided as text, an image, or both) and output a JSON object containing carefully structured question metadata, refined text (using LaTeX where equations/formulas are present), and a precise marking scheme.
+
+Analyze the question and output EXACTLY a JSON object with this schema:
+{
+  "id": "a-unique-slug-string-using-lowercase-and-hyphens-only",
+  "title": "A short, descriptive Malaysian-style exam question title (e.g. Soalan Sel Ringkas, Soalan Alkohol & Ester)",
+  "topicId": "Must be one of the specified topic keys or 'general'",
+  "paperType": "struct" (for structure questions, usually divided into brief parts a,b,c with [1 markah]) or "essay" (for descriptive essay questions/experiments with larger marks [6 markah] or [10 markah])
+  "questionText": "The fully transcribed or cleaned up exam question text in Malay or dual language (Malay/English). Support LaTeX $...$ for chemical formulas and math equations, and formatting like lists. If the source had diagrams, describe the diagrams clearly in text so that the AI/student can understand it.",
+  "markingScheme": "Detailed step-by-step marking scheme / Skema Pemarkahan in Malay, listing correct answers, keyword requirements, chemical equations, and how marks are awarded."
+}
+
+Here are the allowed syllabus topic IDs and their titles:
+${allowedTopicsPrompt}
+- Use "general" if the question spans multiple topics.
+
+Input text from admin (if any):
+${questionText || ""}
+
+Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in markdown block tags like \`\`\`json. Valid JSON only.`
+      });
+
+      const response = await retryGeminiCall(() => getAIClient().models.generateContent({
+        model: MODEL_ANALYSER,
+        contents: { parts },
+      }));
+
+      let rtext = (response.text || "").trim();
+      rtext = rtext.replace(/^```json\n?/, "").replace(/\n?```$/, "");
+
+      try {
+        const result = JSON.parse(rtext);
+        res.json({ success: true, result });
+      } catch (err) {
+        console.error("Failed to parse JSON response from gemini ingest analyser:", rtext);
+        res.status(500).json({ error: "Model did not return valid JSON. Please try again." });
+      }
+    } catch (e: any) {
+      console.error("Exam ingest analysis error:", e);
+      res.status(500).json({ error: e.message || "Failed to analyze question." });
+    }
+  });
+
+  // AI-powered custom notes/knowledge analysis/ingest
+  app.post("/api/admin/knowledge/analyse", async (req, res) => {
+    const { email, noteText, assets } = req.body as {
+      email: string;
+      noteText?: string;
+      assets?: { mimeType: string; data: string }[];
+    };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const parts: any[] = [];
+      if (assets && assets.length > 0) {
+        for (const a of assets) {
+          parts.push({
+            inlineData: {
+              mimeType: a.mimeType,
+              data: a.data
+            }
+          });
+        }
+      }
+
+      const allowedTopicsPrompt = SYLLABUS_TOPICS.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
+
+      parts.push({
+        text: `You are Cikgu Kimia, an expert SPM Chemistry analyzer.
+Your task is to ingest and analyze an uploaded SPM Chemistry note page, textbook photo, or study materials, then output a JSON object containing carefully structured topic concept information, an overview, and main detailed takeaways/keypoints.
+
+Analyze the notes/study materials and output EXACTLY a JSON object with this schema:
+{
+  "topicId": "Must be one of the specified topic keys if it matches, OR a sensible lowercased slug for custom/new notes (e.g., f5-c4 or tips-kbat)",
+  "title": "A short, descriptive Malaysian-style concept or topic title (e.g., Proses Sentuh, Sifat Kimia Garam)",
+  "context": "A detailed conceptual context or description in Malay explaining principles, general theories, IUPAC rules, or chemical equations. Use LaTeX $...$ for chemical symbols (e.g. $H_2SO_4$, $Na^+$) and equations.",
+  "keyPoints": [
+    "A clean, complete key point or notation that the student should remember for exams (e.g. Mangkin yang digunakan ialah vanadium(V) oksida pada suhu $450^\\circ$C). Use LaTeX where equations/formulas are present.",
+    "Another distinct exam requirement, warning, color change, ionic equation, or observation.",
+    "Add more high-quality points (aim for 2 to 5 standard-aligned key points depending on note depth)."
+  ]
+}
+
+Here are the allowed syllabus topic IDs and their titles:
+${allowedTopicsPrompt}
+
+Input text from admin (if any):
+${noteText || ""}
+
+Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in markdown block tags like \`\`\`json. Valid JSON only.`
+      });
+
+      const response = await retryGeminiCall(() => getAIClient().models.generateContent({
+        model: MODEL_ANALYSER,
+        contents: { parts },
+      }));
+
+      let rtext = (response.text || "").trim();
+      rtext = rtext.replace(/^```json\n?/, "").replace(/\n?```$/, "");
+
+      try {
+        const result = JSON.parse(rtext);
+        res.json({ success: true, result });
+      } catch (err) {
+        console.error("Failed to parse JSON response from gemini note ingest analyser:", rtext);
+        res.status(500).json({ error: "Model did not return valid JSON. Please try again." });
+      }
+    } catch (e: any) {
+      console.error("Note ingest analysis error:", e);
+      res.status(500).json({ error: e.message || "Failed to analyze study notes." });
+    }
+  });
+
+  app.post("/api/admin/exams", async (req, res) => {
+    const { email, exam } = req.body as { email: string; exam: any };
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    if (!exam || !exam.id || !exam.title || !exam.questionText || !exam.markingScheme) {
+      return res.status(400).json({ error: "Sila lengkapkan ID, Tajuk Soalan, Teks Soalan, dan Skema Pemarkahan." });
+    }
+    try {
+      const docRef = doc(db, "custom_exams", exam.id.trim().toLowerCase().replace(/\s+/g, "-"));
+      await setDoc(docRef, {
+        id: exam.id.trim().toLowerCase().replace(/\s+/g, "-"),
+        title: exam.title,
+        topicId: exam.topicId || "general",
+        paperType: exam.paperType || "struct",
+        questionText: exam.questionText,
+        markingScheme: exam.markingScheme,
+        updatedAt: serverTimestamp(),
+        updatedBy: email
+      });
+      res.json({ success: true, message: `Berjaya menambah/mengemaskini soalan peperiksaan "${exam.title}"!` });
+    } catch (e: any) {
+      console.error("Save custom exam error:", e);
+      res.status(500).json({ error: e.message || "Gagal menyimpan soalan peperiksaan." });
+    }
+  });
+
+  app.delete("/api/admin/exams/:id", async (req, res) => {
+    const { email } = req.query as { email?: string };
+    const { id } = req.params;
+    if (!email || !isAdmin(email)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const docRef = doc(db, "custom_exams", id);
+      await deleteDoc(docRef);
+      res.json({ success: true, message: "Berjaya memadam soalan peperiksaan tersebut." });
+    } catch (e: any) {
+      console.error("Delete custom exam error:", e);
+      res.status(500).json({ error: e.message || "Gagal memadam soalan peperiksaan." });
+    }
+  });
+
   // ─── streaming chat ─────────────────────────────────────────────────────
   app.post("/api/chat", async (req, res) => {
     const { message, assets, memory, history, selectedTopicId } = req.body as {
@@ -403,7 +734,16 @@ async function startServer() {
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
 
-      const dynamicCtx = buildDynamicContext({ memory, selectedTopicId, userMessage: message, platform: "web" });
+      // Load custom exams from Firestore to supply to the AI
+      let customExams: any[] = [];
+      try {
+        const snap = await getDocs(collection(db, "custom_exams"));
+        customExams = snap.docs.map(doc => doc.data());
+      } catch (e) {
+        console.error("Failed to load custom exams for chat:", e);
+      }
+
+      const dynamicCtx = buildDynamicContext({ memory, selectedTopicId, userMessage: message, platform: "web", customExams });
       const fullSystemInstruction = STATIC_INSTRUCTION + "\n\n" + dynamicCtx;
 
       const userParts: any[] = [];

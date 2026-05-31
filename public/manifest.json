@@ -1,0 +1,24 @@
+{
+  "name": "Cikgu AI Nexus - SPM Chemistry",
+  "short_name": "Cikgu AI",
+  "description": "Cikgu Kimia SPM Pintar & Bank Soalan Peperiksaan Kssm",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

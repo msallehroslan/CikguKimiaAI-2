@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowRight, Upload, Check, X } from "lucide-react";
+import { ArrowRight, Upload, Check, X, Camera } from "lucide-react";
 import { SYLLABUS_TOPICS } from "../constants";
 import { memoryService } from "../services/memoryService";
 import { useFirebase } from "../lib/FirebaseProvider";
@@ -34,6 +34,9 @@ export function Onboarding({ onDone }: OnboardingProps) {
   const [form, setForm] = useState<4 | 5 | null>(null);
   const [weak, setWeak] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const formTopics = SYLLABUS_TOPICS.filter(t => t.form === form);
 
@@ -247,22 +250,54 @@ export function Onboarding({ onDone }: OnboardingProps) {
                   Hantar gambar — Cikgu akan kenal pasti corak kesilapan dan tumpukan latihan pada kelemahan sebenar anda. Boleh langkau sekarang dan hantar nanti.
                 </p>
 
-                <label className="block w-full mb-3 cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    disabled={uploading}
-                  />
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl px-8 py-12 text-center hover:border-brand-accent hover:bg-brand-accent/5 transition-all">
-                    <Upload className="w-7 h-7 text-slate-400 mx-auto mb-3" />
-                    <div className="font-semibold text-slate-700 text-sm mb-1">
-                      {uploading ? "Sedang analisis…" : "Muat naik gambar kertas exam"}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  {/* Option 1: File Browser / Media Library */}
+                  <div 
+                    onClick={() => !uploading && fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center hover:border-brand-accent hover:bg-brand-accent/5 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[140px]"
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      disabled={uploading}
+                    />
+                    <Upload className="w-7 h-7 text-slate-400 mb-2" />
+                    <div className="font-semibold text-slate-700 text-sm">
+                      {uploading ? "Sedang proses…" : "Muat Naik Gambar"}
                     </div>
-                    <div className="text-xs text-slate-500">JPG / PNG · maksimum 8 MB</div>
+                    <div className="text-[10px] text-slate-500 mt-1">Pilih dari galeri foto</div>
                   </div>
-                </label>
+
+                  {/* Option 2: Direct Phone Camera */}
+                  <div 
+                    onClick={() => !uploading && cameraInputRef.current?.click()}
+                    className="border-2 border-dashed border-emerald-300 rounded-2xl p-6 text-center hover:border-emerald-500 hover:bg-emerald-50/50 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[140px]"
+                  >
+                    <input
+                      type="file"
+                      ref={cameraInputRef}
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      disabled={uploading}
+                    />
+                    <Camera className="w-7 h-7 text-emerald-500 mb-2" />
+                    <div className="font-semibold text-emerald-700 text-sm">
+                      Snap Kamera Live 
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1">Tangkap terus dengan kamera telefon</div>
+                  </div>
+                </div>
+
+                {uploading && (
+                  <div className="text-center py-2 text-xs font-mono font-bold text-brand-accent animate-pulse mb-3 bg-red-50 border border-red-100 rounded-xl">
+                    🔄 Cikgu AI sedang menganalisis kertas exam anda... Sila tunggu sebentar.
+                  </div>
+                )}
 
                 <button
                   onClick={async () => { await finish(true); onDone(); }}
