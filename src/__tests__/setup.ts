@@ -1,10 +1,11 @@
 import { vi, beforeEach, afterEach } from "vitest";
+import "@testing-library/jest-dom/vitest";
 
-// Reset localStorage between tests
 beforeEach(() => {
   localStorage.clear();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });

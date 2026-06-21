@@ -25,7 +25,7 @@ import { CapDialog } from "./CapDialog";
 import { MemoryPanel } from "./MemoryPanel";
 import { ResetConfirmDialog } from "./ResetConfirmDialog";
 
-const cleanMessageText = (txt: string) => {
+export const cleanMessageText = (txt: string) => {
   if (!txt) return "";
   return txt
     .replace(/\[CONTEXT SHIFT DETECTED\]:.*?\n/g, "")
