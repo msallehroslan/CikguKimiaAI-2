@@ -139,23 +139,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
           <button
             onClick={() => { onHome?.(); setIsOpen(false); }}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition relative",
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition",
               !selectedTopicId
-                ? "text-slate-900"
-                : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"
+                ? "bg-white text-slate-900"
+                : "bg-white/5 hover:bg-white/10 text-slate-300"
             )}
           >
-            {!selectedTopicId && (
-              <motion.div
-                layoutId="activeTopicBg"
-                className="absolute inset-0 bg-white rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-3 w-full">
-              <Home className="w-4 h-4" />
-              Laman utama
-            </span>
+            <Home className="w-4 h-4" />
+            Laman utama
           </button>
 
           {/* Recent threads */}
@@ -171,21 +162,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                     key={thread.id}
                     onClick={() => { onTopicSelect(thread); setIsOpen(false); }}
                     className={cn(
-                      "w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between gap-2 group relative",
+                      "w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between gap-2 group",
                       selectedTopicId === thread.id
-                        ? "text-white"
+                        ? "bg-brand-accent/20 text-white"
                         : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
                     )}
                   >
-                    {selectedTopicId === thread.id && (
-                      <motion.div
-                        layoutId="activeTopicBg"
-                        className="absolute inset-0 bg-brand-accent/20 rounded-lg"
-                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                      />
-                    )}
-                    <span className="relative z-10 text-xs font-medium truncate flex-1">{thread.title}</span>
-                    <span className="relative z-10 text-[9px] font-mono opacity-50 flex-shrink-0">
+                    <span className="text-xs font-medium truncate flex-1">{thread.title}</span>
+                    <span className="text-[9px] font-mono opacity-50 flex-shrink-0">
                       {thread.timestamp.toLocaleDateString("ms-MY", { day: "numeric", month: "short" })}
                     </span>
                   </button>
@@ -251,23 +235,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                     setIsOpen(false);
                   }}
                   className={cn(
-                    "w-full text-left px-3 py-2.5 rounded-lg transition flex items-center gap-3 relative",
+                    "w-full text-left px-3 py-2.5 rounded-lg transition flex items-center gap-3",
                     selectedTopicId === item.id
-                      ? "text-white"
+                      ? "bg-brand-accent text-white"
                       : "bg-white/5 hover:bg-white/10 text-slate-300"
                   )}
                 >
-                  {selectedTopicId === item.id && (
-                    <motion.div
-                      layoutId="activeTopicBg"
-                      className="absolute inset-0 bg-brand-accent rounded-lg"
-                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3 w-full">
-                    <span className={cn("opacity-60", selectedTopicId === item.id && "opacity-100")}>{item.icon}</span>
-                    <span className="text-xs font-medium">{item.title}</span>
-                  </span>
+                  <span className={cn("opacity-60", selectedTopicId === item.id && "opacity-100")}>{item.icon}</span>
+                  <span className="text-xs font-medium">{item.title}</span>
                 </button>
               ))}
             </motion.div>
@@ -333,28 +308,19 @@ function TopicRow({ topic, selected, onClick }: { topic: Topic; selected: boolea
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left px-3 py-2.5 rounded-lg transition flex items-start gap-3 group relative",
+        "w-full text-left px-3 py-2.5 rounded-lg transition flex items-start gap-3 group",
         selected
-          ? "text-white"
+          ? "bg-white/10 text-white"
           : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
       )}
     >
-      {selected && (
-        <motion.div
-          layoutId="activeTopicBg"
-          className="absolute inset-0 bg-white/10 rounded-lg"
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
-        />
-      )}
-      <span className="relative z-10 flex items-start gap-3 w-full">
-        <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-brand-accent-soft" : "text-slate-500")} />
-        <div className="min-w-0">
-          <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
-          <div className="text-[9px] font-mono opacity-50 mt-0.5">
-            Bab {topic.id.split("-c")[1]}
-          </div>
+      <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-brand-accent-soft" : "text-slate-500")} />
+      <div className="min-w-0">
+        <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
+        <div className="text-[9px] font-mono opacity-50 mt-0.5">
+          Bab {topic.id.split("-c")[1]}
         </div>
-      </span>
+      </div>
     </button>
   );
 }

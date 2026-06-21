@@ -23,7 +23,6 @@ import { EquationBalancer } from "./EquationBalancer";
 import { PeriodicTable } from "./PeriodicTable";
 import { CapDialog } from "./CapDialog";
 import { MemoryPanel } from "./MemoryPanel";
-import { ResetConfirmDialog } from "./ResetConfirmDialog";
 
 const cleanMessageText = (txt: string) => {
   if (!txt) return "";
@@ -93,7 +92,6 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [activePeriodicTab, setActivePeriodicTab] = useState<"table" | "chat">("table");
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -117,30 +115,42 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
     return groups;
   }, [messages]);
 
-  const getTopicGreeting = (topic: Topic): Message[] => {
-    // Safely access subtopics
-    const subtopics = topic.subtopics || [];
-    const subtopicsList = subtopics.length > 0
-      ? `\n\nAntara kandungan penting dalam bab ini:\n${subtopics.map((s: string) => `• ${s}`).join("\n")}`
-      : "";
-
-    const formText = topic.form ? ` (Tingkatan ${topic.form})` : "";
+  // Static fallback greeting (used while smart greeting loads, or for quiz/exam/periodic)
+  const getStaticGreeting = (topic: Topic): Message => {
     let greetingText = "";
-    
     if (topic.id.startsWith("quiz")) {
-      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan Kimia SPM anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.${subtopicsList}\n\nSila klik butang di bawah untuk mula!`;
+      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan Kimia SPM anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.\n\nSila klik butang di bawah untuk mula!`;
     } else if (topic.id.startsWith("exam")) {
-      greetingText = `Selamat datang ke sesi simulasi **${topic.title}**! 📑\n\nSesi ini direka untuk melatih anda menjawab soalan Kertas 2 (Bahagian A, B, atau C) seakan-akan peperiksaan SPM sebenar.${subtopicsList}\n\nSila klik butang di bawah untuk menjana set soalan simulasi anda!`;
+      greetingText = `Selamat datang ke sesi simulasi **${topic.title}**! 📑\n\nSesi ini direka untuk melatih anda menjawab soalan Kertas 2 (Bahagian A, B, atau C) seakan-akan peperiksaan SPM sebenar.\n\nSila klik butang di bawah untuk menjana set soalan simulasi anda!`;
     } else if (topic.id === "periodic-table") {
-      greetingText = `Selamat datang ke meneroka **Jadual Berkala Unsur**! ${subtopicsList}\n\nSila guna borang interaktif di bawah untuk menganalisis sifat unsur, atau tanya Cikgu apa-apa soalan.`;
+      greetingText = `Selamat datang ke meneroka **Jadual Berkala Unsur**! \n\nSila guna borang interaktif di bawah untuk menganalisis sifat unsur, atau tanya Cikgu apa-apa soalan.`;
     } else {
-      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. 🧪${subtopicsList}\n\nApakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
+      const subList = topic.subtopics || [];
+      const subtopicsList = subList.map(s => `- ${s}`).join("\n");
+      const formText = topic.form ? ` (Tingkatan ${topic.form})` : "";
+      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. 🧪\n\n${
+        subtopicsList ? `Antara kandungan penting dalam bab ini:\n${subtopicsList}\n\n` : ""
+      }Apakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
     }
-    return [{
-      role: "model",
-      text: greetingText,
-      timestamp: Date.now()
-    }];
+    return { role: "model", text: greetingText, timestamp: Date.now() };
+  };
+
+  // Backward-compatible wrapper (keeps old call-sites working)
+  const getTopicGreeting = (topic: Topic): Message[] => [getStaticGreeting(topic)];
+
+  // Fetch smart greeting from server (cached in Firebase, generated once per topic globally)
+  const fetchSmartGreeting = async (topic: Topic): Promise<string | null> => {
+    if (topic.id.startsWith("quiz") || topic.id.startsWith("exam") || topic.id === "periodic-table") {
+      return null;
+    }
+    try {
+      const res = await fetch(`/api/topic-greeting?topicId=${encodeURIComponent(topic.id)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.greeting || null;
+    } catch {
+      return null;
+    }
   };
 
   // ── load memory + history + handle greeting when topic changes ───────
@@ -191,9 +201,8 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
 
             if (loaded.length > 0) {
               if (hasHandledInitial.current) return;
-              // Smoothly swap greeting with physical conversation history if it exists
-              // Prepend the topic greeting so it remains pinned at the very top of the thread and never flashes out!
-              const greeting = getTopicGreeting(initialTopic)[0];
+              // Prepend greeting pinned at top; smart greeting will upgrade it async
+              const greeting = getStaticGreeting(initialTopic);
               const firstLoadedText = loaded[0]?.text;
               if (firstLoadedText === greeting.text) {
                 setMessages(loaded);
@@ -202,10 +211,25 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
               }
               hasHandledInitial.current = true;
             } else {
-              // No history found -> Render the greeting with action buttons
+              // No history found -> Show static greeting immediately, then upgrade to smart greeting
               if (!active) return;
-              setMessages(getTopicGreeting(initialTopic));
+              const staticGreeting = getStaticGreeting(initialTopic);
+              setMessages([staticGreeting]);
               hasHandledInitial.current = true;
+              // Fetch smart greeting async — upgrade in place when ready
+              fetchSmartGreeting(initialTopic).then(smartText => {
+                if (!active || !smartText) return;
+                setMessages(prev => {
+                  if (prev.length === 1 && prev[0].role === "model") {
+                    return [{ ...prev[0], text: smartText }];
+                  }
+                  // History already loaded — update pinned greeting at index 0 if it's still a static greeting
+                  if (prev[0]?.role === "model" && prev[0].text === staticGreeting.text) {
+                    return [{ ...prev[0], text: smartText }, ...prev.slice(1)];
+                  }
+                  return prev;
+                });
+              }).catch(() => {/* silently keep static greeting */});
             }
           } catch (historyErr) {
             console.error("Failed to load topic history from Firestore:", historyErr);
@@ -282,7 +306,6 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
       
       // Reset local messages to the initial greeting to show interactive buttons again
       setMessages(getTopicGreeting(initialTopic));
-      setShowResetConfirm(false);
     } catch (err) {
       console.error("Failed to reset session:", err);
     } finally {
@@ -628,7 +651,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
        actions.push({ id: "apparatus", label: "Lukis Radas", icon: <PencilLine className="w-4 h-4 text-rose-500" />, prompt: "Cikgu, boleh lukiskan rajah susunan radas (SVG) untuk eksperimen utama dalam bab ini?" });
     }
 
-    if (topicId === "f4-c3" || topicId === "f5-c1") { // Mole concept or Redox
+    if (topicId === "f4-c3" || topicId === "f5-c1a" || topicId === "f5-c1b") { // Mole concept or Redox
        actions.push({ id: "balancer", label: "Imbang Persamaan", icon: <Calculator className="w-4 h-4 text-emerald-500" />, prompt: "Cikgu, bantu saya imbang satu persamaan kimia yang susah dalam bab ini." });
     } else {
        actions.push({ id: "summary", label: "Ringkasan Bab", icon: <BookOpen className="w-4 h-4 text-slate-500" />, prompt: "Cikgu, boleh berikan ringkasan mind-map (teks) untuk bab ini?" });
@@ -688,7 +711,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
           {initialTopic && messages.length > 1 && (
             <button
               id="btn-header-reset"
-              onClick={() => setShowResetConfirm(true)}
+              onClick={handleResetSession}
               className="p-2.5 rounded-xl bg-indigo-50/75 hover:bg-indigo-100/75 text-indigo-700 border border-indigo-150 active:scale-95 transition-all flex items-center gap-1.5 select-none"
               title="Mula Semula Sesi"
             >
@@ -742,7 +765,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                   </button>
                   {initialTopic && (
                     <button
-                      onClick={() => { setToolsOpen(false); setShowResetConfirm(true); }}
+                      onClick={handleResetSession}
                       className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-indigo-600 font-semibold"
                     >
                       <RefreshCw className="w-4 h-4 text-indigo-500" /> Mula Semula Sesi
@@ -828,14 +851,6 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
               setCapOpen(false);
               if (onUpgradeClick) onUpgradeClick();
             }}
-          />
-        )}
-        {showResetConfirm && (
-          <ResetConfirmDialog
-            topicTitle={sessionTitle}
-            onClose={() => setShowResetConfirm(false)}
-            onConfirm={handleResetSession}
-            isLoading={isLoading}
           />
         )}
       </AnimatePresence>
@@ -978,35 +993,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                           )}>
                             <StreamingMarkdown text={msg.text} />
                           </div>
-                          
-                          {msg.role === "model" && isAdmin(user?.email) && (
-                            <button
-                              onClick={() => {
-                                // Simple save action - in a real implementation we would open a modal to fill in details
-                                const examData = {
-                                  id: `exam-${Date.now()}`,
-                                  title: sessionTitle || "Soalan Peperiksaan Baru",
-                                  questionText: msg.text,
-                                  markingScheme: "Sila lengkapkan skema markah",
-                                  topicId: initialTopic?.id || "general",
-                                  paperType: "struct"
-                                };
-                                
-                                fetch("/api/admin/exams", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ email: user?.email, exam: examData })
-                                }).then(res => res.json()).then(data => {
-                                  if (data.success) alert("Berjaya disimpan!");
-                                  else alert("Gagal menyimpan: " + data.error);
-                                }).catch(err => console.error(err));
-                              }}
-                              className="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition"
-                            >
-                              Simpan ke Firestore
-                            </button>
-                          )}
-                          
+
                           {/* Interactive Start Button for Quiz/Exam/Syllabus */}
                           {msg.role === "model" && msg === messages[0] && initialTopic && (
                             initialTopic.id.startsWith("quiz") ? (

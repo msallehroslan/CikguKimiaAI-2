@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Send, User, X, ImagePlus, FlaskConical, RefreshCw, ClipboardCheck,
   LogOut, Atom, MoreVertical, Sparkles, Calculator, ListChecks, PencilLine, Beaker,
-  Menu, Trophy, BookOpen, Camera
+  Menu, Trophy, BookOpen
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,9 +12,9 @@ import rehypeKatex from "rehype-katex";
 import { Message, GeminiService } from "../services/geminiService";
 import { Topic } from "../constants";
 import { cn } from "../lib/utils";
-import { memoryService, StudentMemory, DAILY_CAP, DAILY_CAP_PREMIUM, isAdmin } from "../services/memoryService";
+import { memoryService, StudentMemory, DAILY_CAP, isAdmin } from "../services/memoryService";
 import { useFirebase } from "../lib/FirebaseProvider";
-import { collection, query, orderBy, limit, getDocs, where, deleteDoc } from "firebase/firestore";
+import { collection, query, orderBy, limit, getDocs, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { compressImageFile } from "../lib/imageCompress";
 import { qaCache } from "../lib/qaCache";
@@ -23,40 +23,9 @@ import { EquationBalancer } from "./EquationBalancer";
 import { PeriodicTable } from "./PeriodicTable";
 import { CapDialog } from "./CapDialog";
 import { MemoryPanel } from "./MemoryPanel";
-import { ResetConfirmDialog } from "./ResetConfirmDialog";
-
-const cleanMessageText = (txt: string) => {
-  if (!txt) return "";
-  return txt
-    .replace(/\[CONTEXT SHIFT DETECTED\]:.*?\n/g, "")
-    .replace(/\[MASTERY\][^\n]*\n?/g, "")
-    .replace(/\[NEURAL_INSIGHT\][^\n]*\n?/g, "")
-    .trim();
-};
-
-const bubbleVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.98 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: {
-      type: "spring",
-      stiffness: 260,
-      damping: 24,
-      mass: 0.8
-    }
-  },
-  exit: {
-    opacity: 0,
-    y: -10,
-    transition: { duration: 0.2 }
-  }
-} as const;
 
 interface ChatProps {
   initialTopic?: Topic | null;
-  onUpgradeClick?: () => void;
 }
 
 interface SelectedImage {
@@ -68,15 +37,13 @@ interface SelectedImage {
 }
 
 // Component state and main logic
-export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
-  const { user, logout, isSubscriber } = useFirebase();
-  const isEffectiveSubscriber = isSubscriber || (user ? isAdmin(user.email) : false);
+export function Chat({ initialTopic }: ChatProps) {
+  const { user, logout } = useFirebase();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionTitle, setSessionTitle] = useState<string>(initialTopic?.title || "Cikgu Kimia");
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
   const [compressing, setCompressing] = useState(false);
 
@@ -93,12 +60,9 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [activePeriodicTab, setActivePeriodicTab] = useState<"table" | "chat">("table");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitial = useRef(false);
 
   const gemini = useMemo(() => new GeminiService(memory), [memory]);
@@ -118,23 +82,20 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   }, [messages]);
 
   const getTopicGreeting = (topic: Topic): Message[] => {
-    // Safely access subtopics
-    const subtopics = topic.subtopics || [];
-    const subtopicsList = subtopics.length > 0
-      ? `\n\nAntara kandungan penting dalam bab ini:\n${subtopics.map((s: string) => `• ${s}`).join("\n")}`
-      : "";
-
-    const formText = topic.form ? ` (Tingkatan ${topic.form})` : "";
     let greetingText = "";
-    
     if (topic.id.startsWith("quiz")) {
-      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan Kimia SPM anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.${subtopicsList}\n\nSila klik butang di bawah untuk mula!`;
+      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan Kimia SPM anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.\n\nSila klik butang di bawah untuk mula!`;
     } else if (topic.id.startsWith("exam")) {
-      greetingText = `Selamat datang ke sesi simulasi **${topic.title}**! 📑\n\nSesi ini direka untuk melatih anda menjawab soalan Kertas 2 (Bahagian A, B, atau C) seakan-akan peperiksaan SPM sebenar.${subtopicsList}\n\nSila klik butang di bawah untuk menjana set soalan simulasi anda!`;
+      greetingText = `Selamat datang ke sesi simulasi **${topic.title}**! 📑\n\nSesi ini direka untuk melatih anda menjawab soalan Kertas 2 (Bahagian A, B, atau C) seakan-akan peperiksaan SPM sebenar.\n\nSila klik butang di bawah untuk menjana set soalan simulasi anda!`;
     } else if (topic.id === "periodic-table") {
-      greetingText = `Selamat datang ke meneroka **Jadual Berkala Unsur**! ${subtopicsList}\n\nSila guna borang interaktif di bawah untuk menganalisis sifat unsur, atau tanya Cikgu apa-apa soalan.`;
+      greetingText = `Selamat datang ke meneroka **Jadual Berkala Unsur**! \n\nSila guna borang interaktif di bawah untuk menganalisis sifat unsur, atau tanya Cikgu apa-apa soalan.`;
     } else {
-      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. 🧪${subtopicsList}\n\nApakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
+      const subList = topic.subtopics || [];
+      const subtopicsList = subList.map(s => `- ${s}`).join("\n");
+      const formText = topic.form ? ` (Tingkatan ${topic.form})` : "";
+      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. 🧪\n\n${
+        subtopicsList ? `Antara kandungan penting dalam bab ini:\n${subtopicsList}\n\n` : ""
+      }Apakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
     }
     return [{
       role: "model",
@@ -147,11 +108,16 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   useEffect(() => {
     if (!user) return;
 
-    // Reset periodic table tab back to default whenever the topic changes
-    setActivePeriodicTab("table");
-
-    setIsHistoryLoading(true);
-    setMessages([]); // Start clean to avoid flashing the welcome greeting while searching for history
+    // Reset messages to the warm topic welcome greeting instantly, preventing hanging screens!
+    if (initialTopic) {
+      setMessages(getTopicGreeting(initialTopic));
+    } else {
+      setMessages([{
+        role: "model",
+        text: `Salam sejahtera, ${user.displayName || "Pelajar"}! Saya Cikgu Kimia. Boleh saya bantu hari ini? 🧪\n\nPilih topik di kiri, atau tanya apa-apa.`,
+        timestamp: Date.now(),
+      }]);
+    }
     hasHandledInitial.current = false;
 
     let active = true;
@@ -166,75 +132,44 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
             const historyQuery = query(
               collection(db, `users/${user.uid}/history`),
               where("topicId", "==", initialTopic.id),
+              orderBy("timestamp", "asc"),
               limit(20)
             );
             const snap = await getDocs(historyQuery);
             if (!active) return;
 
-            const loaded: Message[] = snap.docs
-              .map((d) => {
-                const data = d.data();
-                return {
-                  role: data.role,
-                  text: cleanMessageText(data.text),
-                  images: data.images,
-                  timestamp: data.timestamp?.toDate 
-                    ? data.timestamp.toDate().getTime() 
-                    : (typeof data.timestamp === "number" ? data.timestamp : Date.now()),
-                };
-              })
-              .sort((a, b) => {
-                const tA = typeof a.timestamp === 'number' ? a.timestamp : 0;
-                const tB = typeof b.timestamp === 'number' ? b.timestamp : 0;
-                return tA - tB;
-              });
+            const loaded: Message[] = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                role: data.role,
+                text: data.text,
+                images: data.images,
+                timestamp: data.timestamp?.toDate ? data.timestamp.toDate().getTime() : Date.now(),
+              };
+            });
 
             if (loaded.length > 0) {
-              if (hasHandledInitial.current) return;
               // Smoothly swap greeting with physical conversation history if it exists
-              // Prepend the topic greeting so it remains pinned at the very top of the thread and never flashes out!
-              const greeting = getTopicGreeting(initialTopic)[0];
-              const firstLoadedText = loaded[0]?.text;
-              if (firstLoadedText === greeting.text) {
-                setMessages(loaded);
-              } else {
-                setMessages([greeting, ...loaded]);
-              }
+              setMessages(loaded);
               hasHandledInitial.current = true;
             } else {
-              // No history found -> Render the greeting with action buttons
+              // No history found -> AUTOMATICALLY kick-off the interactive Gemini explanation (except for interactive periodic table)!
               if (!active) return;
-              setMessages(getTopicGreeting(initialTopic));
               hasHandledInitial.current = true;
+              if (initialTopic.id !== "periodic-table") {
+                await handleInitialTopic(initialTopic);
+              }
             }
           } catch (historyErr) {
             console.error("Failed to load topic history from Firestore:", historyErr);
             // Non-blocking fallback: Do not stall, let student continue with the seeded greeting
-            if (active) {
-              setMessages(getTopicGreeting(initialTopic));
-            }
             hasHandledInitial.current = true;
-          } finally {
-            if (active) {
-              setIsHistoryLoading(false);
-            }
           }
         } else {
-          if (active) {
-            setMessages([{
-              role: "model",
-              text: `Salam sejahtera, ${user.displayName || "Pelajar"}! Saya Cikgu Kimia. Boleh saya bantu hari ini? 🧪\n\nPilih topik di kiri, atau tanya apa-apa.`,
-              timestamp: Date.now(),
-            }]);
-            hasHandledInitial.current = true;
-            setIsHistoryLoading(false);
-          }
+          hasHandledInitial.current = true;
         }
       } catch (err) {
         console.error("Error in init:", err);
-        if (active) {
-          setIsHistoryLoading(false);
-        }
       }
     };
 
@@ -247,47 +182,12 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   }, [user, initialTopic?.id]);
 
   const used = memory.dailyMessages ?? 0;
-  const currentCap = isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP;
-  const remaining = Math.max(0, currentCap - used);
+  const remaining = Math.max(0, DAILY_CAP - used);
 
   const loadMemory = async () => {
     if (!user) return;
-    try {
-      const mem = await memoryService.getMemory(user.uid);
-      setMemory(mem);
-    } catch (err) {
-      console.error("Failed to load memory from Firestore, using fallback:", err);
-      setMemory({
-        weakTopics: [],
-        identifiedMistakes: [],
-        examPapersAnalysis: [],
-        dailyMessages: 0,
-        currentStreak: 0,
-      });
-    }
-  };
-
-  const handleResetSession = async () => {
-    if (!user || !initialTopic) return;
-    setIsLoading(true);
-    setToolsOpen(false);
-    try {
-      const historyQuery = query(
-        collection(db, `users/${user.uid}/history`),
-        where("topicId", "==", initialTopic.id)
-      );
-      const snap = await getDocs(historyQuery);
-      const deletePromises = snap.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
-      
-      // Reset local messages to the initial greeting to show interactive buttons again
-      setMessages(getTopicGreeting(initialTopic));
-      setShowResetConfirm(false);
-    } catch (err) {
-      console.error("Failed to reset session:", err);
-    } finally {
-      setIsLoading(false);
-    }
+    const mem = await memoryService.getMemory(user.uid);
+    setMemory(mem);
   };
 
   const handleInitialTopic = async (topic: Topic) => {
@@ -299,8 +199,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
     } else {
       text = `Cikgu, saya nak tanya pasal topik "${topic.title}". Boleh kongsikan ringkasan utama dan apa yang biasa keluar dalam SPM?`;
     }
-    const greeting = getTopicGreeting(topic);
-    handleSend(text, greeting);
+    handleSend(text);
   };
 
   // ── auto-scroll ───────────────────────────────────────────────────────
@@ -440,55 +339,39 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
     setSelectedImages(prev => prev.filter(img => img.id !== id));
 
   // ── send a message ────────────────────────────────────────────────────
-  const handleSend = async (text: string = input, customHistory?: Message[]) => {
+  const handleSend = async (text: string = input) => {
     const finalImages = [...selectedImages];
     if ((!text.trim() && finalImages.length === 0) || isLoading || !user) return;
 
-    hasHandledInitial.current = true;
+    // Daily budget check (single Firestore read)
+    const { ok, remaining } = await memoryService.canSend(user.uid);
+    if (!ok) {
+      setCapOpen(true);
+      return;
+    }
+    console.log(`[budget] ${remaining - 1} messages remaining today`);
+
+    // QA cache short-circuit — only on plain text questions with no images
+    let cachedAnswer: string | null = null;
+    if (finalImages.length === 0 && text.length > 6 && messages.length < 4) {
+      cachedAnswer = qaCache.hit(text, initialTopic?.id);
+    }
+
+    const userMessage: Message = {
+      role: "user", text,
+      images: finalImages.map(img => ({ mimeType: img.mimeType, data: img.base64 })),
+      timestamp: Date.now(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setSelectedImages([]);
     setIsLoading(true);
 
+    let fullResponse = "";
+
     try {
-      // Daily budget check (single Firestore read)
-      let isAllowed = true;
-      let remainingCount = 5;
-      try {
-        const check = await memoryService.canSend(user.uid);
-        isAllowed = check.ok;
-        remainingCount = check.remaining;
-      } catch (checkErr) {
-        console.error("Failed to check message limits:", checkErr);
-        // Fail-safe: allow the request rather than locking up the screen
-      }
-
-      if (!isAllowed) {
-        setCapOpen(true);
-        setIsLoading(false);
-        return;
-      }
-      console.log(`[budget] ${remainingCount - 1} messages remaining today`);
-
-      const userMessage: Message = {
-        role: "user", text,
-        images: finalImages.map(img => ({ mimeType: img.mimeType, data: img.base64 })),
-        timestamp: Date.now(),
-      };
-
-      // Atomically append user message and model placeholder message to the array
-      setMessages(prev => [
-        ...prev, 
-        userMessage, 
-        { role: "model", text: "", timestamp: Date.now() + 1 }
-      ]);
-      setInput("");
-      setSelectedImages([]);
-
-      let fullResponse = "";
-
-      // QA cache short-circuit — only on plain text questions with no images
-      let cachedAnswer: string | null = null;
-      if (finalImages.length === 0 && text.length > 6 && messages.length < 4) {
-        cachedAnswer = qaCache.hit(text, initialTopic?.id);
-      }
+      setMessages(prev => [...prev, { role: "model", text: "", timestamp: Date.now() }]);
 
       if (cachedAnswer) {
         // Replay cached answer with a tiny stream delay so the UI still feels alive
@@ -505,8 +388,8 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
         }
       } else {
         const payloadImages = finalImages.map(img => ({ mimeType: img.mimeType, data: img.base64 }));
-        // Build history straight from React state or customHistory — no Firestore re-fetch.
-        const history = buildHistoryForServer(customHistory !== undefined ? customHistory : messages, 4);
+        // Build history straight from React state — no Firestore re-fetch.
+        const history = buildHistoryForServer(messages, 4);
 
         let detectedShift = false;
 
@@ -526,28 +409,11 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
             const arr = [...prev];
             const last = arr[arr.length - 1];
             if (last && last.role === "model") {
-              last.text = cleanMessageText(fullResponse);
+              last.text = fullResponse.replace(/\[CONTEXT SHIFT DETECTED\]:.*?\n/g, "");
             }
             return arr;
           });
         }, history, initialTopic?.id);
-
-        // Handle [MASTERY] topicId +delta
-        if (fullResponse.includes("[MASTERY]")) {
-          const mMastery = fullResponse.match(/\[MASTERY\]\s+([a-zA-Z0-9\-]+)\s+([\+\-]?\d+)/);
-          if (mMastery) {
-            const tId = mMastery[1].trim();
-            const delta = parseInt(mMastery[2], 10);
-            if (tId && !isNaN(delta)) {
-              try {
-                await memoryService.bumpMastery(user.uid, tId, delta);
-                await loadMemory();
-              } catch (mErr) {
-                console.error("Failed to bump mastery level:", mErr);
-              }
-            }
-          }
-        }
 
         // Cache the response for future identical questions
         if (finalImages.length === 0 && text.length > 6) {
@@ -570,21 +436,12 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
       }
 
       // Atomic batched write: increment usage, persist user+model messages, update streak
-      try {
-        const updatedMem = await memoryService.recordTurn(user.uid, {
-          topicId: initialTopic?.id,
-          userMessage: { text, images: userMessage.images },
-          modelMessage: { text: fullResponse },
-        });
-        setMemory(updatedMem);
-      } catch (turnErr) {
-        console.error("Failed to persist turn to database:", turnErr);
-        // Optimistic UI updates: increment count locally on memory state
-        setMemory(prev => ({
-          ...prev,
-          dailyMessages: (prev.dailyMessages ?? 0) + 1,
-        }));
-      }
+      const updatedMem = await memoryService.recordTurn(user.uid, {
+        topicId: initialTopic?.id,
+        userMessage: { text, images: userMessage.images },
+        modelMessage: { text: fullResponse },
+      });
+      setMemory(updatedMem);
 
     } catch (error: any) {
       console.error("Chat Error:", error);
@@ -607,7 +464,18 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
     }
   };
 
-
+  // ── overlays for periodic-table topic ─────────────────────────────────
+  if (initialTopic?.id === "periodic-table" && messages.length <= 1) {
+    return (
+      <div className="h-full">
+        <PeriodicTable 
+          onClose={() => handleSend("Cikgu, terangkan secara ringkas kepentingan Jadual Berkala?")} 
+          onAnalyze={(el) => handleSend(`Cikgu, bolehkan terangkan secara mendalam tentang unsur ${el.name} (${el.symbol}) berkaitan silibus SPM? Seperti sifat kimia, kedudukan dalam Jadual Berkala, dan eksperimen berkaitan.`)}
+          onExplore={(el) => handleSend(`Cikgu, apa kegunaan industri atau fakta menarik tentang ${el.name} yang patut saya tahu untuk soalan Kimia SPM?`)}
+        />
+      </div>
+    );
+  }
 
   const getTopicQuickActions = () => {
     const base = [
@@ -681,21 +549,9 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
             {isAdmin(user?.email) ? (
               "Tanpa had"
             ) : (
-              <>{remaining} / {currentCap} Peluang</>
+              <>{remaining} / {DAILY_CAP} Peluang</>
             )}
           </div>
-
-          {initialTopic && messages.length > 1 && (
-            <button
-              id="btn-header-reset"
-              onClick={() => setShowResetConfirm(true)}
-              className="p-2.5 rounded-xl bg-indigo-50/75 hover:bg-indigo-100/75 text-indigo-700 border border-indigo-150 active:scale-95 transition-all flex items-center gap-1.5 select-none"
-              title="Mula Semula Sesi"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-xs font-bold">Mula Semula</span>
-            </button>
-          )}
 
           <div className="relative">
             <button
@@ -740,14 +596,6 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                   >
                     <Sparkles className="w-4 h-4" /> Progres saya
                   </button>
-                  {initialTopic && (
-                    <button
-                      onClick={() => { setToolsOpen(false); setShowResetConfirm(true); }}
-                      className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-indigo-600 font-semibold"
-                    >
-                      <RefreshCw className="w-4 h-4 text-indigo-500" /> Mula Semula Sesi
-                    </button>
-                  )}
                   <div className="my-1 border-t border-slate-100" />
                   <button
                     onClick={() => { setToolsOpen(false); logout(); }}
@@ -761,33 +609,6 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
           </div>
         </div>
       </header>
-
-      {initialTopic?.id === "periodic-table" && (
-        <div className="bg-white border-b border-stone-200 px-4 sm:px-8 py-2.5 flex items-center justify-center gap-3 sticky top-0 z-10 shadow-sm">
-          <button
-            onClick={() => setActivePeriodicTab("table")}
-            className={cn(
-              "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
-              activePeriodicTab === "table"
-                ? "bg-slate-900 text-white shadow-sm"
-                : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-            )}
-          >
-            <Atom className="w-3.5 h-3.5" /> Jadual Berkala (Interaktif)
-          </button>
-          <button
-            onClick={() => setActivePeriodicTab("chat")}
-            className={cn(
-              "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
-              activePeriodicTab === "chat"
-                ? "bg-slate-900 text-white shadow-sm"
-                : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-            )}
-          >
-            <Sparkles className="w-3.5 h-3.5" /> Tanya Cikgu ({messages.length > 1 ? messages.length - 1 : 0})
-          </button>
-        </div>
-      )}
 
       {/* Overlays */}
       <AnimatePresence>
@@ -822,270 +643,190 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
         {capOpen && (
           <CapDialog
             resetAt={memoryService.getNextResetAt()}
-            cap={currentCap}
+            cap={DAILY_CAP}
             onClose={() => setCapOpen(false)}
-            onUpgrade={() => {
-              setCapOpen(false);
-              if (onUpgradeClick) onUpgradeClick();
-            }}
-          />
-        )}
-        {showResetConfirm && (
-          <ResetConfirmDialog
-            topicTitle={sessionTitle}
-            onClose={() => setShowResetConfirm(false)}
-            onConfirm={handleResetSession}
-            isLoading={isLoading}
           />
         )}
       </AnimatePresence>
 
       {/* Messages */}
-      {initialTopic?.id === "periodic-table" && activePeriodicTab === "table" ? (
-        <div className="flex-grow overflow-y-auto bg-stone-50">
-          <PeriodicTable 
-            onClose={() => {
-              setActivePeriodicTab("chat");
-              handleSend("Cikgu, terangkan secara ringkas kepentingan Jadual Berkala?");
-            }} 
-            onAnalyze={(el) => {
-              setActivePeriodicTab("chat");
-              setTimeout(() => {
-                handleSend(`Cikgu, terangkan secara mendalam tentang unsur ${el.name} (${el.symbol}) berkaitan silibus SPM. Sila berikan kedudukan dalam Jadual Berkala, Sifat Fizik dan Sifat Kimia.`);
-              }, 100);
-            }}
-            onExplore={(el) => {
-              setActivePeriodicTab("chat");
-              setTimeout(() => {
-                handleSend(`Cikgu, apakah kegunaan industri atau fakta menarik tentang ${el.name} yang patut saya tahu untuk soalan Kimia SPM?`);
-              }, 100);
-            }}
-          />
-        </div>
-      ) : (
-        <div ref={scrollRef} className="flex-grow overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-10 space-y-8">
-            {isHistoryLoading && (
-              <div className="flex flex-col items-center justify-center py-24 space-y-4">
-                <div className="relative">
-                  <div className="w-12 h-12 border-4 border-slate-100 border-t-slate-700 rounded-full animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-[10px]">🧪</span>
+      <div ref={scrollRef} className="flex-grow overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 py-10 space-y-8">
+          {messages.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="py-12 flex flex-col items-center text-center space-y-6"
+            >
+              <div className="px-3 py-1 bg-white border border-slate-200 rounded-full shadow-sm">
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Syllabus KSSM SPM v2.0 Ready</span>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-display text-slate-900">Apa yang kita nak belajar hari ini?</h3>
+                <p className="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
+                  Tanya apa-apa soalan Kimia, hantar gambar soalan peperiksaan, atau guna butang menu untuk alat khas.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md pt-4">
+                 {dynamicQuickActions.slice(0, 4).map(qa => (
+                   <button
+                     key={qa.id}
+                     onClick={() => handleSend(qa.prompt)}
+                     className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-2xl text-left hover:border-brand-accent/40 hover:shadow-sm transition-all group"
+                   >
+                     <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-brand-accent/5 transition-colors">
+                       {qa.icon}
+                     </div>
+                     <span className="text-xs font-semibold text-slate-700">{qa.label}</span>
+                   </button>
+                 ))}
+              </div>
+            </motion.div>
+          )}
+
+          <AnimatePresence initial={false}>
+            {groupedMessages.map((group, gi) => (
+              <div key={gi} className="space-y-6">
+                <div className="flex justify-center">
+                  <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-[0.25em] uppercase">
+                    · {group.date} ·
                   </div>
                 </div>
-                <div className="space-y-1 text-center animate-pulse">
-                  <p className="text-xs font-semibold text-slate-700">Menganalisis sejarah pembelajaran...</p>
-                  <p className="text-[10px] text-slate-400 font-mono tracking-tight">Menyiapkan bilik darjah interaktif anda</p>
-                </div>
-              </div>
-            )}
-
-            {!isHistoryLoading && messages.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="py-12 flex flex-col items-center text-center space-y-6"
-              >
-                <div className="px-3 py-1 bg-white border border-slate-200 rounded-full shadow-sm">
-                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Syllabus KSSM SPM v2.0 Ready</span>
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-2xl font-display text-slate-900">Apa yang kita nak belajar hari ini?</h3>
-                  <p className="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
-                    Tanya apa-apa soalan Kimia, hantar gambar soalan peperiksaan, atau guna butang menu untuk alat khas.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md pt-4">
-                   {dynamicQuickActions.slice(0, 4).map(qa => (
-                     <button
-                       key={qa.id}
-                       onClick={() => handleSend(qa.prompt)}
-                       className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-2xl text-left hover:border-brand-accent/40 hover:shadow-sm transition-all group"
-                     >
-                       <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-brand-accent/5 transition-colors">
-                         {qa.icon}
-                       </div>
-                       <span className="text-xs font-semibold text-slate-700">{qa.label}</span>
-                     </button>
-                   ))}
-                </div>
-              </motion.div>
-            )}
-
-            <AnimatePresence initial={false}>
-              {groupedMessages.map((group, gi) => (
-                <div key={gi} className="space-y-6">
-                  <div className="flex justify-center">
-                    <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-[0.25em] uppercase">
-                      · {group.date} ·
+                {group.messages.map((msg, mi) => (
+                  <motion.div
+                    key={`${gi}-${mi}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className={cn("flex gap-3 sm:gap-4", msg.role === "user" ? "flex-row-reverse" : "flex-row")}
+                  >
+                    <div className="flex-shrink-0">
+                      {msg.role === "user" ? (
+                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 ring-2 ring-white">
+                          <User className="w-4 h-4" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-900 ring-2 ring-white">
+                          <img src="/logo.png" alt="Cikgu" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  {group.messages.map((msg, mi) => (
-                    <motion.div
-                      key={msg.timestamp ? `${msg.role}-${msg.timestamp}` : `${gi}-${mi}`}
-                      variants={bubbleVariants}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      layout="position"
-                      className={cn("flex gap-3 sm:gap-4", msg.role === "user" ? "flex-row-reverse" : "flex-row")}
-                    >
-                      <div className="flex-shrink-0">
-                        {msg.role === "user" ? (
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 ring-2 ring-white">
-                            <User className="w-4 h-4" />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-900 ring-2 ring-white">
-                            <img src="/logo.png" alt="Cikgu" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                          </div>
-                        )}
-                      </div>
 
-                      <div className={cn("max-w-[85%] sm:max-w-[78%]", msg.role === "user" ? "flex flex-col items-end" : "flex flex-col items-start")}>
-                        {msg.images && msg.images.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-2 justify-end">
-                            {msg.images.map((img, i) => (
-                              <div key={i} className="relative">
-                                {img.mimeType.startsWith("image/") ? (
-                                  <img
-                                    src={`data:${img.mimeType};base64,${img.data}`}
-                                    alt="Soalan"
-                                    className="max-w-[240px] sm:max-w-xs rounded-2xl shadow-md border border-slate-200"
-                                  />
-                                ) : (
-                                  <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-2xl border border-slate-200 text-slate-700">
-                                    <FlaskConical className="w-4 h-4 text-slate-500" />
-                                    <span className="text-sm">{img.mimeType.includes("pdf") ? "PDF" : "Fail"}</span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                    <div className={cn("max-w-[85%] sm:max-w-[78%]", msg.role === "user" ? "flex flex-col items-end" : "flex flex-col items-start")}>
+                      {msg.images && msg.images.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2 justify-end">
+                          {msg.images.map((img, i) => (
+                            <div key={i} className="relative">
+                              {img.mimeType.startsWith("image/") ? (
+                                <img
+                                  src={`data:${img.mimeType};base64,${img.data}`}
+                                  alt="Soalan"
+                                  className="max-w-[240px] sm:max-w-xs rounded-2xl shadow-md border border-slate-200"
+                                />
+                              ) : (
+                                <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-2xl border border-slate-200 text-slate-700">
+                                  <FlaskConical className="w-4 h-4 text-slate-500" />
+                                  <span className="text-sm">{img.mimeType.includes("pdf") ? "PDF" : "Fail"}</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
+                      <div className={cn(
+                        "rounded-2xl px-5 py-4 shadow-sm border",
+                        msg.role === "user"
+                          ? "bg-slate-900 text-white border-slate-900 rounded-tr-md"
+                          : "bg-white text-slate-800 border-slate-200 rounded-tl-md"
+                      )}>
                         <div className={cn(
-                          "rounded-2xl px-5 py-4 shadow-sm border",
+                          "prose prose-sm max-w-none",
                           msg.role === "user"
-                            ? "bg-slate-900 text-white border-slate-900 rounded-tr-md"
-                            : "bg-white text-slate-800 border-slate-200 rounded-tl-md"
+                            ? "prose-invert prose-p:text-slate-100"
+                            : "prose-slate"
                         )}>
-                          <div className={cn(
-                            "prose prose-sm max-w-none",
-                            msg.role === "user"
-                              ? "prose-invert prose-p:text-slate-100"
-                              : "prose-slate"
-                          )}>
-                            <StreamingMarkdown text={msg.text} />
-                          </div>
-                          
-                          {msg.role === "model" && isAdmin(user?.email) && (
+                          <StreamingMarkdown text={msg.text} />
+                        </div>
+
+                        {/* Interactive Start Button for Quiz/Exam/Syllabus */}
+                        {msg.role === "model" && messages.length === 1 && initialTopic && (
+                          initialTopic.id.startsWith("quiz") ? (
                             <button
-                              onClick={() => {
-                                // Simple save action - in a real implementation we would open a modal to fill in details
-                                const examData = {
-                                  id: `exam-${Date.now()}`,
-                                  title: sessionTitle || "Soalan Peperiksaan Baru",
-                                  questionText: msg.text,
-                                  markingScheme: "Sila lengkapkan skema markah",
-                                  topicId: initialTopic?.id || "general",
-                                  paperType: "struct"
-                                };
-                                
-                                fetch("/api/admin/exams", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ email: user?.email, exam: examData })
-                                }).then(res => res.json()).then(data => {
-                                  if (data.success) alert("Berjaya disimpan!");
-                                  else alert("Gagal menyimpan: " + data.error);
-                                }).catch(err => console.error(err));
-                              }}
-                              className="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition"
+                              id="btn-mula-kuiz"
+                              onClick={() => handleSend(`Cikgu, saya sedia! Sila berikan satu soalan objektif mencabar dari "${initialTopic.title}".`)}
+                              className="mt-4 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer border border-transparent"
                             >
-                              Simpan ke Firestore
+                              🚀 Sedia, Mula Kuiz Sekarang
                             </button>
-                          )}
-                          
-                          {/* Interactive Start Button for Quiz/Exam/Syllabus */}
-                          {msg.role === "model" && msg === messages[0] && initialTopic && (
-                            initialTopic.id.startsWith("quiz") ? (
+                          ) : initialTopic.id.startsWith("exam") ? (
+                            <button
+                              id="btn-mula-simulasi"
+                              onClick={() => handleSend(`Cikgu, saya sedia! Sila mulakan simulasi peperiksaan "${initialTopic.title}" dengan soalan struktur atau esei.`)}
+                              className="mt-4 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer border border-transparent"
+                            >
+                              📝 Sedia, Mula Peperiksaan Simulasi
+                            </button>
+                          ) : initialTopic.id !== "periodic-table" ? (
+                            <div className="mt-4 flex flex-wrap gap-2">
                               <button
-                                id="btn-mula-kuiz"
-                                onClick={() => handleSend(`Cikgu, saya sedia! Sila berikan satu soalan jackpot objektif dari "${initialTopic.title}".`)}
-                                className="mt-4 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer border border-transparent"
+                                id="btn-nota-ringkas"
+                                onClick={() => handleSend(`Cikgu, mohon kongsikan nota ringkas, rumusan konsep penting, serta tip peperiksaan SPM untuk topik "${initialTopic.title}".`)}
+                                className="px-4 py-2 bg-slate-900 hover:bg-slate-850 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
                               >
-                                🚀 Sedia, Mula Kuiz Sekarang
+                                📖 Beri Nota Ringkas & Tip SPM
                               </button>
-                            ) : initialTopic.id.startsWith("exam") ? (
                               <button
-                                id="btn-mula-simulasi"
-                                onClick={() => handleSend(`Cikgu, saya sedia! Sila mulakan simulasi peperiksaan "${initialTopic.title}" dengan soalan struktur atau esei.`)}
-                                className="mt-4 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer border border-transparent"
+                                id="btn-soalan-latihan"
+                                onClick={() => handleSend(`Cikgu, sila berikan saya satu soalan latihan Kertas 2 (Struktur/Esei) SPM bagi topik "${initialTopic.title}".`)}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
                               >
-                                📝 Sedia, Mula Peperiksaan Simulasi
+                                ❓ Berikan Soalan Latihan Kertas 2
                               </button>
-                            ) : initialTopic.id !== "periodic-table" ? (
-                              <div className="mt-4 flex flex-wrap gap-2">
-                                <button
-                                  id="btn-nota-ringkas"
-                                  onClick={() => handleSend(`Cikgu, mohon kongsikan nota ringkas, rumusan konsep penting, serta tip peperiksaan SPM untuk topik "${initialTopic.title}".`)}
-                                  className="px-4 py-2 bg-slate-900 hover:bg-slate-850 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
-                                >
-                                  📖 Beri Nota Ringkas & Tip SPM
-                                </button>
-                                <button
-                                  id="btn-soalan-latihan"
-                                  onClick={() => handleSend(`Cikgu, sila berikan saya satu soalan latihan Kertas 2 (Struktur/Esei) SPM bagi topik "${initialTopic.title}".`)}
-                                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
-                                >
-                                  ❓ Berikan Soalan Latihan Kertas 2
-                                </button>
-                                <button
-                                  id="btn-uji-minda"
-                                  onClick={() => handleSend(`Cikgu, jom uji kefahaman saya dengan memberikan soalan konsep kilat untuk topik "${initialTopic.title}".`)}
-                                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
-                                >
-                                  ⚡ Uji Saya Dengan Soalan Kilat
-                                </button>
-                              </div>
-                            ) : null
-                          )}
-                        </div>
-
-                        <div className="mt-1.5 text-[10px] text-slate-400 font-mono">
-                          {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("ms-MY", { hour: "2-digit", minute: "2-digit" }) : ""}
-                        </div>
+                              <button
+                                id="btn-uji-minda"
+                                onClick={() => handleSend(`Cikgu, jom uji kefahaman saya dengan memberikan soalan konsep kilat untuk topik "${initialTopic.title}".`)}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-transparent"
+                              >
+                                ⚡ Uji Saya Dengan Soalan Kilat
+                              </button>
+                            </div>
+                          ) : null
+                        )}
                       </div>
-                    </motion.div>
-                  ))}
-                </div>
-              ))}
-            </AnimatePresence>
 
-            {isLoading && messages[messages.length - 1]?.text === "" && (
-              <div className="flex gap-3 sm:gap-4">
-                <div className="w-8 h-8 rounded-full bg-slate-900 ring-2 ring-white" />
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-md px-5 py-4 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="flex gap-1">
-                      {[0, 1, 2].map(i => (
-                        <motion.span
-                          key={i}
-                          animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
-                          className="w-1.5 h-1.5 bg-slate-400 rounded-full block"
-                        />
-                      ))}
-                    </span>
-                    <span className="text-sm text-slate-500">Cikgu sedang berfikir…</span>
-                  </div>
+                      <div className="mt-1.5 text-[10px] text-slate-400 font-mono">
+                        {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("ms-MY", { hour: "2-digit", minute: "2-digit" }) : ""}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ))}
+          </AnimatePresence>
+
+          {isLoading && messages[messages.length - 1]?.text === "" && (
+            <div className="flex gap-3 sm:gap-4">
+              <div className="w-8 h-8 rounded-full bg-slate-900 ring-2 ring-white" />
+              <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-md px-5 py-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className="flex gap-1">
+                    {[0, 1, 2].map(i => (
+                      <motion.span
+                        key={i}
+                        animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
+                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
+                        className="w-1.5 h-1.5 bg-slate-400 rounded-full block"
+                      />
+                    ))}
+                  </span>
+                  <span className="text-sm text-slate-500">Cikgu sedang berfikir…</span>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Input area */}
       <div className="bg-white border-t border-slate-200 px-4 sm:px-8 py-4 sm:py-5">
@@ -1154,36 +895,19 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
               multiple
               className="hidden"
             />
-            <input
-              type="file"
-              ref={cameraInputRef}
-              onChange={handleFileChange}
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-            />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2.5 rounded-xl bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-all active:scale-95 shrink-0"
-                title="Muat naik fail/galeri"
+                className="p-2.5 rounded-xl bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-all active:scale-95"
+                title="Muat naik gambar / PDF"
               >
                 <ImagePlus className="w-5 h-5" />
               </button>
 
               <button
                 type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="p-2.5 rounded-xl bg-white text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition-all active:scale-95 shrink-0"
-                title="Guna Kamera Telefon"
-              >
-                <Camera className="w-5 h-5" />
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setShowPeriodicTable(true)}
-                className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95 shrink-0"
+                className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95"
                 title="Buka Jadual Berkala"
               >
                 <Atom className="w-5 h-5" />

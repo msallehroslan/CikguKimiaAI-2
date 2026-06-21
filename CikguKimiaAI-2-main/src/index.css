@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
+@import "tailwindcss";
+
+@theme {
+  /* IoTera branding — Modern Tech/AI */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Iotera palette: Cool Navy, Electric Cyan, and Sharp White */
+  --color-brand-navy: #04081c;      /* deep tech navy */
+  --color-brand-paper: #ffffff;     /* clean white */
+  --color-brand-accent: #0ea5e9;    /* electric sky blue/cyan */
+  --color-brand-accent-soft: #7dd3fc;
+  
+  --color-brand-blue: #0ea5e9;
+  --color-brand-cyan: #22d3ee;
+  --color-brand-purple: #3b82f6;    /* switched from violet to tech blue */
+  --color-brand-sidebar: #04081c;
+}
+
+/* Tailwind utility for display headings */
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+
+body {
+  @apply bg-slate-50 font-sans text-slate-900;
+}
+
+/* Cleaner scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-slate-200 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-slate-300; }
+
+/* KaTeX */
+.katex-display {
+  @apply my-4 p-4 bg-slate-50 rounded-xl overflow-x-auto border border-slate-100;
+  text-align: center;
+}
+.katex { @apply text-brand-accent font-medium; }
+.prose .katex-display { @apply -mx-4 w-[calc(100%+2rem)]; }
+
+@media (max-width: 640px) {
+  .katex { font-size: 0.95em !important; }
+}
+
+/* Markdown prose tweaks for chat bubbles */
+.prose pre { @apply bg-slate-50 border border-slate-200; }
+.prose-invert pre { @apply bg-slate-800 border-slate-700; }

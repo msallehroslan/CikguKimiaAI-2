@@ -9,13 +9,12 @@ import { motion, AnimatePresence } from "motion/react";
 import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useFirebase } from "../lib/FirebaseProvider";
-import { memoryService, DAILY_CAP, DAILY_CAP_PREMIUM, isAdmin } from "../services/memoryService";
+import { memoryService, DAILY_CAP } from "../services/memoryService";
 
 interface SidebarProps {
   selectedTopicId?: string;
   onTopicSelect: (topic: Topic | null) => void;
   onHome?: () => void;
-  onUpgradeClick?: () => void;
   className?: string;
 }
 
@@ -26,9 +25,8 @@ interface SidebarProps {
  *  - Decorative pulsing dots / italic uppercase removed
  *  - Polls memory every 60s (was 30s) — same data, less load
  */
-export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick, className }: SidebarProps) {
-  const { user, isSubscriber, subscriptionPlan } = useFirebase();
-  const isEffectiveSubscriber = isSubscriber || (user ? isAdmin(user.email) : false);
+export function Sidebar({ selectedTopicId, onTopicSelect, onHome, className }: SidebarProps) {
+  const { user } = useFirebase();
   const [isOpen, setIsOpen] = useState(false);
   const [expandedForm, setExpandedForm] = useState<number | null>(4);
   const [isLatihanExpanded, setIsLatihanExpanded] = useState(true);
@@ -47,7 +45,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
     const interval = setInterval(refresh, 60_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selectedTopicId, isEffectiveSubscriber]);
+  }, [user, selectedTopicId]);
 
   const refresh = async () => {
     if (!user) return;
@@ -139,23 +137,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
           <button
             onClick={() => { onHome?.(); setIsOpen(false); }}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition relative",
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition",
               !selectedTopicId
-                ? "text-slate-900"
-                : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"
+                ? "bg-white text-slate-900"
+                : "bg-white/5 hover:bg-white/10 text-slate-300"
             )}
           >
-            {!selectedTopicId && (
-              <motion.div
-                layoutId="activeTopicBg"
-                className="absolute inset-0 bg-white rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-3 w-full">
-              <Home className="w-4 h-4" />
-              Laman utama
-            </span>
+            <Home className="w-4 h-4" />
+            Laman utama
           </button>
 
           {/* Recent threads */}
@@ -171,21 +160,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                     key={thread.id}
                     onClick={() => { onTopicSelect(thread); setIsOpen(false); }}
                     className={cn(
-                      "w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between gap-2 group relative",
+                      "w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between gap-2 group",
                       selectedTopicId === thread.id
-                        ? "text-white"
+                        ? "bg-brand-accent/20 text-white"
                         : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
                     )}
                   >
-                    {selectedTopicId === thread.id && (
-                      <motion.div
-                        layoutId="activeTopicBg"
-                        className="absolute inset-0 bg-brand-accent/20 rounded-lg"
-                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                      />
-                    )}
-                    <span className="relative z-10 text-xs font-medium truncate flex-1">{thread.title}</span>
-                    <span className="relative z-10 text-[9px] font-mono opacity-50 flex-shrink-0">
+                    <span className="text-xs font-medium truncate flex-1">{thread.title}</span>
+                    <span className="text-[9px] font-mono opacity-50 flex-shrink-0">
                       {thread.timestamp.toLocaleDateString("ms-MY", { day: "numeric", month: "short" })}
                     </span>
                   </button>
@@ -251,23 +233,14 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                     setIsOpen(false);
                   }}
                   className={cn(
-                    "w-full text-left px-3 py-2.5 rounded-lg transition flex items-center gap-3 relative",
+                    "w-full text-left px-3 py-2.5 rounded-lg transition flex items-center gap-3",
                     selectedTopicId === item.id
-                      ? "text-white"
+                      ? "bg-brand-accent text-white"
                       : "bg-white/5 hover:bg-white/10 text-slate-300"
                   )}
                 >
-                  {selectedTopicId === item.id && (
-                    <motion.div
-                      layoutId="activeTopicBg"
-                      className="absolute inset-0 bg-brand-accent rounded-lg"
-                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3 w-full">
-                    <span className={cn("opacity-60", selectedTopicId === item.id && "opacity-100")}>{item.icon}</span>
-                    <span className="text-xs font-medium">{item.title}</span>
-                  </span>
+                  <span className={cn("opacity-60", selectedTopicId === item.id && "opacity-100")}>{item.icon}</span>
+                  <span className="text-xs font-medium">{item.title}</span>
                 </button>
               ))}
             </motion.div>
@@ -276,26 +249,6 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
 
         {/* Footer — streak + messages remaining */}
         <div className="p-4 border-t border-white/5 space-y-2.5">
-          {/* Subscriber Promo or Badge */}
-          {isEffectiveSubscriber ? (
-            <div className="bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 rounded-2xl p-2.5 flex items-center justify-between">
-              <div className="min-w-0">
-                <div className="text-[9px] font-mono font-bold text-amber-400 uppercase tracking-widest leading-none">Status</div>
-                <div className="font-display text-xs font-semibold text-white mt-1">Cikgu Pro 👑</div>
-              </div>
-              <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold text-[8px] tracking-wide uppercase px-2 py-0.5 rounded-full">
-                {subscriptionPlan === "trial" && (user && isAdmin(user.email)) ? "Admin" : (subscriptionPlan === "yearly" ? "Yly" : "Mthly")}
-              </span>
-            </div>
-          ) : (
-            <button
-              onClick={onUpgradeClick}
-              className="w-full py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:scale-[1.02] active:scale-[0.98] transition rounded-2xl text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/5"
-            >
-              👑 Langgan Cikgu Pro
-            </button>
-          )}
-
           <div className="flex gap-2">
             {/* Streak */}
             <div className="flex-1 bg-white/5 border border-white/5 rounded-xl px-3 py-2.5">
@@ -308,14 +261,11 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
             {/* Mesej tinggal */}
             <div className="flex-1 bg-white/5 border border-white/5 rounded-xl px-3 py-2.5">
               <div className="text-[9px] font-mono font-semibold text-slate-500 tracking-widest uppercase">Mesej</div>
-              <div className="font-display text-xl text-white leading-none mt-1.5">
-                {Math.max(0, (isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP) - dailyMessages)}
-                <span className="text-slate-500 text-base">/{isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP}</span>
-              </div>
+              <div className="font-display text-xl text-white leading-none mt-1.5">{remaining}<span className="text-slate-500 text-base">/{DAILY_CAP}</span></div>
             </div>
           </div>
           <div className="text-[9px] font-mono text-slate-500 tracking-wider text-center">
-            {isEffectiveSubscriber ? "Sokongan Prioriti GPU aktif" : "reset 5:00 pagi MYT"}
+            reset 5:00 pagi MYT
           </div>
         </div>
       </motion.aside>
@@ -333,28 +283,19 @@ function TopicRow({ topic, selected, onClick }: { topic: Topic; selected: boolea
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left px-3 py-2.5 rounded-lg transition flex items-start gap-3 group relative",
+        "w-full text-left px-3 py-2.5 rounded-lg transition flex items-start gap-3 group",
         selected
-          ? "text-white"
+          ? "bg-white/10 text-white"
           : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
       )}
     >
-      {selected && (
-        <motion.div
-          layoutId="activeTopicBg"
-          className="absolute inset-0 bg-white/10 rounded-lg"
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
-        />
-      )}
-      <span className="relative z-10 flex items-start gap-3 w-full">
-        <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-brand-accent-soft" : "text-slate-500")} />
-        <div className="min-w-0">
-          <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
-          <div className="text-[9px] font-mono opacity-50 mt-0.5">
-            Bab {topic.id.split("-c")[1]}
-          </div>
+      <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-brand-accent-soft" : "text-slate-500")} />
+      <div className="min-w-0">
+        <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
+        <div className="text-[9px] font-mono opacity-50 mt-0.5">
+          Bab {topic.id.split("-c")[1]}
         </div>
-      </span>
+      </div>
     </button>
   );
 }

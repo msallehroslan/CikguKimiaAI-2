@@ -26,8 +26,11 @@ import { db } from "./src/lib/firebase";
 import { collection, addDoc, query, orderBy, limit, getDocs, getDoc, serverTimestamp, doc, setDoc, deleteDoc } from "firebase/firestore";
 
 import { SYLLABUS_KNOWLEDGE_BASE } from "./src/data/syllabus_kb.ts";
+import { QUESTION_BANK } from "./src/data/questionBank.ts";
 import { EXAM_PAPERS, buildFrequencyIndex } from "./src/data/examFrequency.ts";
 import { EXAM_ANSWERS_KB, formatAnswersForPrompt } from "./src/data/examAnswersKb.ts";
+import { sharedCache } from "./src/lib/sharedCache.ts";
+import { normalizeQuestion } from "./src/lib/qaCache.ts";
 
 // ─── config ───────────────────────────────────────────────────────────────
 const WEB_APP_URL =
@@ -156,7 +159,7 @@ Mission:
 1. LANGUAGE: respond in the EXACT same language the student uses (Malay if they wrote Malay; English if English; mixed only if they mixed).
 2. Ground every answer in the official KSSM SPM syllabus.
 3. Equations: use LaTeX symbols ($H_2O$, $H^+$, $SO_4^{2-}$).
-4. IMPORTANT: When explaining an answer, you MUST prioritize the logic, keywords, and marking points defined in the provided 'Skema Pemarkahan' / 'Marking Scheme' for that specific question/topic. Do not just explain conceptually; align your steps with the skema's criteria. If the skema highlights a specific way to state a fact, you must use that phrasing (e.g. if the skema requires "frequency of effective collisions", do not accept "frequency of collisions"). Flag ⚠ common errors proactively as noted in the skema.
+4. Warn about common KSSM marking scheme pitfalls.
 5. VISUAL AIDS: for electrolysis / titration / atomic structure / apparatus diagrams, embed an SVG inside a markdown block with language "svg":
    \`\`\`svg
    <svg viewBox="0 0 100 100">...</svg>
@@ -191,14 +194,14 @@ GLOBAL INSIGHTS:
 - Redox: AN OX + RED CAT rule is essential.
 - Salt preparation: apply Soluble / Insoluble salt rules.
 
-SPM MARKING SCHEME GUIDELINES:
-${MARKING_SCHEME_TIPS.map(t => `Topic: ${t.topic}\nKeywords: ${t.requiredKeywords.join(", ")}\nLogic: ${t.markingSchemeLogic}`).join("\n\n")}
-
 SPM PAST YEAR EXAM ANSWERS (use these as ground truth when students ask about these topics):
 When a student's question matches a topic below, prioritise these exact marking scheme answers.
 Always highlight ⚠ common errors when relevant.
 
-${formatAnswersForPrompt()}`;
+${formatAnswersForPrompt()}
+
+SPM MARKING SCHEME GUIDELINES:
+${MARKING_SCHEME_TIPS.map(t => `Topic: ${t.topic}\nKeywords: ${t.requiredKeywords.join(", ")}\nLogic: ${t.markingSchemeLogic}`).join("\n\n")}`;
 
 const TELEGRAM_TAIL = `
 TELEGRAM:
@@ -209,6 +212,9 @@ TELEGRAM:
 const FULL_RAG_TEXT = SYLLABUS_KNOWLEDGE_BASE
   .map(t => `${t.title}\n${t.context}\nKey Facts:\n- ${t.keyPoints.join("\n- ")}`)
   .join("\n\n---\n\n");
+
+// Pre-format all exam answers for static instruction (injected once)
+const FULL_EXAM_ANSWERS_TEXT = formatAnswersForPrompt();
 
 /**
  * Build the small per-request *dynamic* context.
@@ -240,21 +246,24 @@ function buildDynamicContext(args: {
   if (memBits.length) pieces.push(`Student context:\n${memBits.join("\n")}`);
   if (platform === "telegram") pieces.push(TELEGRAM_TAIL);
 
-  if (customExams && customExams.length > 0) {
-    const examDescriptions = customExams.map(ex => {
-      let paperLabel = "Kertas 2 - Esei";
-      if (ex.paperType === "struct") paperLabel = "Kertas 2 - Struktur";
-      else if (ex.paperType === "kertas_1") paperLabel = "Kertas 1 - Objektif";
-      
-      return `[Exam Question ID: ${ex.id}, Topic: ${ex.topicId || "any"}, Paper Type: ${paperLabel}]
+  // Built-in question bank (Modul Topikal A+ EDU Factory) + admin custom exams
+  const topicPrefix = selectedTopicId ? selectedTopicId.split("-").slice(0,2).join("-") : "";
+  const relevantBuiltIn = selectedTopicId
+    ? QUESTION_BANK.filter(q => q.topicId === selectedTopicId || q.topicId.startsWith(topicPrefix))
+    : QUESTION_BANK;
+  const allExams = [...relevantBuiltIn, ...(customExams || [])];
+
+  if (allExams.length > 0) {
+    const examDescriptions = allExams.map(ex => {
+      return `[Exam Question ID: ${ex.id}, Topic: ${ex.topicId || "any"}, Paper Type: ${ex.paperType === "struct" ? "Kertas 2 - Struktur" : "Kertas 2 - Esei"}]
 Title: ${ex.title}
 Question:
 ${ex.questionText}
 Marking Scheme / Expected Answers:
 ${ex.markingScheme}`;
     }).join("\n\n---\n\n");
-    
-    pieces.push(`ADMIN-DEFINED EXAM QUESTIONS POOL:\nUse the following exact exam questions when the student initiates an exam session or practice (e.g. topicId starts with "exam", like "exam-struct" or "exam-essay") or asks to do exam exercises related to the topic of these questions. Avoid generating generic questions if there are custom ones below matching the topic / requested paper type! Always grade and correct the student's answer using the specific Marking Scheme provided. Do NOT reveal the marking scheme or correct answers until the user makes their attempt.\n\n${examDescriptions}`);
+
+    pieces.push(`EXAM QUESTIONS POOL (Built-in + Admin):\nUse the following exact exam questions when the student initiates an exam session or practice, or asks to do exercises related to the topic of these questions. Avoid generating generic questions if matching ones exist below! Always grade using the Marking Scheme provided. Do NOT reveal marking scheme until student attempts.\n\n${examDescriptions}`);
   }
 
   // Inject topic-specific past year exam answers for more precise grounding
@@ -806,6 +815,20 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
         { role: "user", parts: userParts }
       ];
 
+      // ─── Layer 2: Firebase Shared Cache ──────────────────────────────────────
+      // Only cache single-turn factual questions (no images, conversation < 3 turns)
+      const isCacheable = (!assets || assets.length === 0) && (history || []).length < 3;
+      if (isCacheable) {
+        const cachedAnswer = await sharedCache.hit(message, selectedTopicId);
+        if (cachedAnswer) {
+          console.log(`[CACHE HIT L2] topic=${selectedTopicId} q="${message.slice(0,50)}..."`);
+          res.write(cachedAnswer);
+          res.end();
+          return;
+        }
+      }
+
+      // ─── Layer 3: Gemini API ───────────────────────────────────────────────
       const streamResponse = await retryGeminiCall(() => getAIClient().models.generateContentStream({
         model: MODEL_CHAT,
         contents,
@@ -815,13 +838,20 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
         }
       } as any));
 
+      let fullAnswer = "";
       for await (const chunk of streamResponse) {
         const t = chunk.text;
         if (t) {
           res.write(t);
+          fullAnswer += t;
         }
       }
       res.end();
+
+      // Save to Layer 2 Firebase cache (fire & forget)
+      if (isCacheable && fullAnswer.length > 30) {
+        sharedCache.set(message, fullAnswer, selectedTopicId).catch(() => {});
+      }
     } catch (error: any) {
       console.error("Gemini chat error detail:", {
         message: error?.message,
@@ -967,12 +997,23 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
   };
   seedInsights().catch(console.error);
 
-  // ─── admin: get exam frequency for a topic ─────────────────────────────
-  app.get("/api/admin/exam-frequency/:topicId", async (req, res) => {
+  // ─── Cache Stats API (admin) ─────────────────────────────────────────────
+  app.get("/api/admin/cache-stats", async (req, res) => {
     try {
-      const snap = await getDoc(doc(db, "exam_frequency", req.params.topicId));
-      if (!snap.exists()) return res.status(404).json({ error: "No data for this topic" });
-      res.json(snap.data());
+      const topEntries = await sharedCache.getTopEntries(20);
+      const totalDocs = topEntries.length;
+      const totalHits = topEntries.reduce((sum, e) => sum + (e.hits || 0), 0);
+      res.json({
+        totalCachedQuestions: totalDocs,
+        totalCacheHits: totalHits,
+        estimatedApiCallsSaved: totalHits,
+        topQuestions: topEntries.map(e => ({
+          question: (e.question || "").slice(0, 80),
+          topicId: e.topicId,
+          hits: e.hits || 0,
+          createdAt: e.createdAtMs ? new Date(e.createdAtMs).toISOString() : null,
+        })),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -994,7 +1035,7 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
       const topic = SYLLABUS_TOPICS.find(t => t.id === topicId);
       if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-      const kb = SYLLABUS_KNOWLEDGE_BASE.find(t => t.topicId === topicId);
+      const kb = SYLLABUS_KNOWLEDGE_BASE[topicId as keyof typeof SYLLABUS_KNOWLEDGE_BASE];
       const subtopics = topic.subtopics?.join(", ") || "";
       const kbSnippet = kb ? (typeof kb === "string" ? kb : JSON.stringify(kb)).slice(0, 1500) : "";
 
@@ -1042,7 +1083,7 @@ PENTING: Tulis dalam Bahasa Malaysia. Padat, berguna, tidak terlalu panjang (max
         config: { temperature: 0.6, maxOutputTokens: 800 },
       } as any));
 
-      const greeting = result?.text?.trim() || "";
+      const greeting = result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
       if (!greeting) return res.status(500).json({ error: "Gemini returned empty greeting" });
 
       // Persist to Firebase — 0 API cost for all future students
@@ -1122,9 +1163,21 @@ PENTING: Tulis dalam Bahasa Malaysia. Padat, berguna, tidak terlalu panjang (max
     }
   });
 
+  // Admin: get exam frequency for a topic
+  app.get("/api/admin/exam-frequency/:topicId", async (req, res) => {
+    try {
+      const snap = await getDoc(doc(db, "exam_frequency", req.params.topicId));
+      if (!snap.exists()) return res.status(404).json({ error: "No data for this topic" });
+      res.json(snap.data());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Cikgu Kimia v2 server running on http://0.0.0.0:${PORT}`);
     console.log(`  models: chat=${MODEL_CHAT}, analyser=${MODEL_ANALYSER}, summary=${MODEL_SUMMARY}`);
+    console.log(`  cache: 3-layer (localStorage + Firebase shared_cache + Gemini API)`);
   });
 }
 
@@ -1132,3 +1185,5 @@ console.log("Initializing Cikgu Kimia v2 server...");
 startServer().catch(err => {
   console.error("FATAL: Failed to start server:", err);
 });
+
+// ─── Cache Stats Endpoint (admin only) ───────────────────────────────────────

@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Users: only owner can read/write their own data
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create, update: if isOwner(userId);
+
+      match /history/{msgId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId);
+      }
+    }
+
+    // Shared cache: anyone can read, only server (signed in) can write
+    match /shared_cache/{docId} {
+      allow read: if true;           // pelajar boleh check cache
+      allow write: if isSignedIn();  // server sahaja yang tulis
+    }
+
+    // Global insights: readable by all, writable by server
+    match /global_insights/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Admin collections: server only
+    match /custom_exams/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /custom_knowledge/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /system/heartbeat {
+      allow get: if true;
+    }
+  }
+}

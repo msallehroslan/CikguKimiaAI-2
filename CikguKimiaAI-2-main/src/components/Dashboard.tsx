@@ -61,7 +61,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
   const [examIdInput, setExamIdInput] = useState("");
   const [examTitleInput, setExamTitleInput] = useState("");
   const [examTopicInput, setExamTopicInput] = useState("general");
-  const [examPaperTypeInput, setExamPaperTypeInput] = useState<"struct" | "essay" | "kertas_1">("struct");
+  const [examPaperTypeInput, setExamPaperTypeInput] = useState<"struct" | "essay">("struct");
   const [examQuestionInput, setExamQuestionInput] = useState("");
   const [examMarkingSchemeInput, setExamMarkingSchemeInput] = useState("");
   const [examFormStatus, setExamFormStatus] = useState({ type: "", text: "" });
@@ -81,11 +81,6 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
   const [ingestNotePreview, setIngestNotePreview] = useState("");
   const [ingestNoteLoading, setIngestNoteLoading] = useState(false);
   const [ingestNoteStatus, setIngestNoteStatus] = useState("");
-
-  // Confirmation state variables for iframe-safe operations
-  const [confirmDeleteExamId, setConfirmDeleteExamId] = useState<string | null>(null);
-  const [confirmDeleteFactId, setConfirmDeleteFactId] = useState<string | null>(null);
-  const [confirmToggleStudentId, setConfirmToggleStudentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -118,20 +113,24 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
   const handleToggleSubscriber = async (student: any) => {
     if (!user) return;
+    const nextStatus = !student.isSubscriber;
+    const confirmMsg = nextStatus 
+      ? `Adakah anda pasti mahu mengaktifkan langganan premium untuk pelajar "${student.name || student.email || student.uid}"?`
+      : `Adakah anda pasti mahu membatalkan langganan premium untuk pelajar "${student.name || student.email || student.uid}"?`;
+    
+    if (!confirm(confirmMsg)) return;
 
     try {
-      const nextStatus = !student.isSubscriber;
       const { doc, setDoc } = await import("firebase/firestore");
       const studentRef = doc(db, 'users', student.uid);
       await setDoc(studentRef, {
         isSubscriber: nextStatus,
         subscriptionPlan: nextStatus ? 'premium' : 'trial'
       }, { merge: true });
-      setConfirmToggleStudentId(null);
+      alert("Status langganan berjaya dikemaskini!");
       loadStudents();
     } catch (e: any) {
-      console.error("Gagal mengemaskini:", e);
-      setConfirmToggleStudentId(null);
+      alert("Gagal mengemaskini: " + e.message);
     }
   };
 
@@ -202,6 +201,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
   const handleDeleteExam = async (id: string) => {
     if (!user) return;
+    if (!confirm("Adakah anda pasti mahu memadam soalan peperiksaan ini? Cikgu Kimia tidak lagi boleh menggunakan soalan ini.")) return;
 
     try {
       const res = await fetch(`/api/admin/exams/${id}?email=${encodeURIComponent(user.email || "")}`, {
@@ -209,15 +209,12 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setConfirmDeleteExamId(null);
         loadExams();
       } else {
-        console.error("Gagal memadam:", data.error);
-        setConfirmDeleteExamId(null);
+        alert(data.error || "Gagal memadam.");
       }
     } catch (err) {
       console.error(err);
-      setConfirmDeleteExamId(null);
     }
   };
 
@@ -252,7 +249,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
     setIngestLoading(true);
     setIngestStatus("");
     setExamFormStatus({ type: "", text: "" });
- 
+
     try {
       const assets: { mimeType: string; data: string }[] = [];
       if (ingestFile) {
@@ -262,17 +259,13 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
       if (ingestSkemaFile) {
         assets.push({ mimeType: ingestSkemaFile.type, data: ingestSkemaPreview.split(",")[1] });
       }
- 
+
       const res = await fetch("/api/admin/exams/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: user.email,
-          questionText: ingestDraftText,
-          assets
-        })
+        body: JSON.stringify({ email: user.email, questionText: ingestDraftText, assets })
       });
- 
+
       const data = await res.json();
       if (data.success && data.result) {
         const items: any[] = Array.isArray(data.result) ? data.result : [data.result];
@@ -287,7 +280,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
           setExamMarkingSchemeInput(item.markingScheme || "");
           setIngestStatus("Berjaya dicerna oleh AI! 1 soalan diisi dalam borang.");
         } else {
-          // Multiple questions — auto-save all to Firestore
+          // Multiple questions — auto-save all to Firestore via batch
           setIngestStatus(`Gemini berjaya extract ${items.length} soalan. Menyimpan ke Firestore...`);
           let saved = 0;
           for (const item of items) {
@@ -458,6 +451,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
   const handleDeleteFact = async (topicId: string) => {
     if (!user) return;
+    if (!confirm("Adakah anda pasti mahu memadam rujukan pengetahuan ini? Cikgu Kimia tidak lagi boleh merujuk fakta ini.")) return;
     
     try {
       const res = await fetch(`/api/admin/knowledge/${topicId}?email=${encodeURIComponent(user.email || "")}`, {
@@ -465,15 +459,12 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setConfirmDeleteFactId(null);
         loadFacts();
       } else {
-        console.error("Gagal memadam RAG:", data.error);
-        setConfirmDeleteFactId(null);
+        alert(data.error || "Gagal memadam.");
       }
     } catch (err) {
       console.error(err);
-      setConfirmDeleteFactId(null);
     }
   };
 
@@ -561,7 +552,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
       };
     }
     // 3. Fallback to Form-based starting point
-    const fallbackId = (memory as any).form === 5 ? "f5-c1" : "f4-c1";
+    const fallbackId = (memory as any).form === 5 ? "f5-c1a" : "f4-c1";
     const fallback = SYLLABUS_TOPICS.find(st => st.id === fallbackId);
     if (fallback) return {
       topic: fallback,
@@ -881,30 +872,13 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                                   Mesej Hari Ini: <span className="font-bold text-slate-600">{st.dailyMessages || 0}</span>
                                 </div>
                               </td>
-                               <td className="p-4 py-3.5 text-center">
-                                {confirmToggleStudentId === st.uid ? (
-                                  <div className="flex items-center justify-center gap-1.5 animate-pulse">
-                                    <button
-                                      onClick={() => handleToggleSubscriber(st)}
-                                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-sm"
-                                    >
-                                      Pasti?
-                                    </button>
-                                    <button
-                                      onClick={() => setConfirmToggleStudentId(null)}
-                                      className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition"
-                                    >
-                                      Batal
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => setConfirmToggleStudentId(st.uid)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm ${st.isSubscriber ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-100" : "bg-slate-900 hover:bg-slate-800 text-white shadow-sm"}`}
-                                  >
-                                    {st.isSubscriber ? "Batalkan Premium" : "Berikan Premium ★"}
-                                  </button>
-                                )}
+                              <td className="p-4 py-3.5 text-center">
+                                <button
+                                  onClick={() => handleToggleSubscriber(st)}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm ${st.isSubscriber ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-100" : "bg-slate-900 hover:bg-slate-800 text-white shadow-sm"}`}
+                                >
+                                  {st.isSubscriber ? "Batalkan Premium" : "Berikan Premium ★"}
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -1253,37 +1227,20 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                             </div>
                           </div>
 
-                          {confirmDeleteFactId === f.topicId ? (
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start animate-pulse">
-                              <button
-                                onClick={() => handleDeleteFact(f.topicId)}
-                                className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 rounded-lg text-xs font-bold text-white transition shadow-sm"
-                              >
-                                Pasti?
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteFactId(null)}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
-                              >
-                                Batal
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start">
-                              <button
-                                onClick={() => handleStartEdit(f)}
-                                className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
-                              >
-                                Sunting
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteFactId(f.topicId)}
-                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-bold text-rose-600 transition"
-                              >
-                                Padam
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start">
+                            <button
+                              onClick={() => handleStartEdit(f)}
+                              className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
+                            >
+                              Sunting
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFact(f.topicId)}
+                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-bold text-rose-600 transition"
+                            >
+                              Padam
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1367,15 +1324,15 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                             </div>
 
                             <div>
-                              <label className="block text-[11px] font-mono font-bold text-slate-600 uppercase tracking-wide mb-1.5 font-bold">Sumber Kertas Soalan: PDF / Gambar / Tangkapan Skrin</label>
+                              <label className="block text-[11px] font-mono font-bold text-slate-600 uppercase tracking-wide mb-1.5 font-bold">Sumber Soalan: Gambar / Tangkapan Skrin</label>
                               <div className="space-y-3 bg-white border border-slate-200 p-3 rounded-xl">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                   {/* Standard upload */}
                                   <div className="flex flex-col p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <span className="text-[10px] font-bold text-slate-500 mb-1 font-mono uppercase">1. Pilih dari Fail/Galeri (PDF/Slaid/Gambar)</span>
+                                    <span className="text-[10px] font-bold text-slate-500 mb-1 font-mono uppercase">1. Pilih dari Fail/Galeri</span>
                                     <input
                                       type="file"
-                                      accept="application/pdf,image/*"
+                                      accept="image/*"
                                       onChange={handleIngestFileChange}
                                       className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300 transition cursor-pointer"
                                     />
@@ -1396,39 +1353,37 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                                   </div>
                                 </div>
 
-                                {ingestFile && (
+                                {ingestFilePreview && (
                                   <div className="mt-2 flex items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 animate-fade-in">
-                                    {ingestFile.type.startsWith("image/") && ingestFilePreview && (
-                                      <div className="relative w-12 h-12 rounded-lg border border-slate-200 overflow-hidden shrink-0 shadow-sm">
-                                        <img src={ingestFilePreview} alt="Preview" className="w-full h-full object-cover" />
-                                      </div>
-                                    )}
-                                    <div className="text-xs text-slate-600 font-mono flex-1">
-                                      📄 <strong>Kertas Soalan:</strong> {ingestFile.name} (Sedia)
+                                    <div className="relative w-12 h-12 rounded-lg border border-slate-200 overflow-hidden shrink-0 shadow-sm">
+                                      <img src={ingestFilePreview} alt="Preview" className="w-full h-full object-cover" />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setIngestFile(null);
+                                          setIngestFilePreview("");
+                                        }}
+                                        className="absolute inset-0 bg-red-600/90 text-white flex items-center justify-center text-[10px] opacity-0 hover:opacity-100 font-bold transition"
+                                      >
+                                        Padam
+                                      </button>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setIngestFile(null);
-                                        setIngestFilePreview("");
-                                      }}
-                                      className="text-red-500 hover:text-red-700 text-xs font-bold"
-                                    >
-                                      Padam
-                                    </button>
+                                    <div className="text-xs text-slate-600 font-mono">
+                                      Kandungan gambar bersedia untuk dicerna oleh AI!
+                                    </div>
                                   </div>
                                 )}
                               </div>
                             </div>
 
-                            {/* Skema PDF/image upload — optional second document */}
+                            {/* Skema PDF upload — optional second document */}
                             <div>
                               <label className="block text-[11px] font-mono font-bold text-slate-600 uppercase tracking-wide mb-1.5">
-                                Skema Pemarkahan PDF / Slaid / Gambar <span className="text-rose-600 font-bold">(Pilihan — Skema Jawapan)</span>
+                                Skema Pemarkahan PDF <span className="text-emerald-600">(Pilihan — untuk auto-match soalan + jawapan)</span>
                               </label>
-                              <div className="bg-rose-50/40 border border-rose-100 p-3 rounded-xl space-y-2">
-                                <p className="text-[10px] text-rose-700 font-mono">
-                                  Muat naik skema pemarkahan untuk padanan soalan-ke-jawapan automatik demi hasil kualiti yang tinggi.
+                              <div className="bg-emerald-50/60 border border-emerald-200 p-3 rounded-xl space-y-2">
+                                <p className="text-[10px] text-emerald-700 font-mono">
+                                  Upload skema PDF serentak dengan kertas soalan → Gemini akan extract semua soalan + match jawapan automatik → auto-save ke Firestore
                                 </p>
                                 <input
                                   type="file"
@@ -1444,18 +1399,12 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                                       setIngestSkemaPreview("");
                                     }
                                   }}
-                                  className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-rose-600 file:text-white hover:file:bg-rose-700 transition cursor-pointer"
+                                  className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 transition cursor-pointer"
                                 />
                                 {ingestSkemaFile && (
-                                  <div className="flex items-center gap-2 text-xs text-rose-700 font-mono">
-                                    ✅ <strong>Skema Jawapan:</strong> {ingestSkemaFile.name}
-                                    <button 
-                                      type="button" 
-                                      onClick={() => { setIngestSkemaFile(null); setIngestSkemaPreview(""); }} 
-                                      className="text-red-500 hover:text-red-700 font-bold ml-1"
-                                    >
-                                      ✕
-                                    </button>
+                                  <div className="flex items-center gap-2 text-xs text-emerald-700 font-mono">
+                                    ✅ {ingestSkemaFile.name}
+                                    <button type="button" onClick={() => { setIngestSkemaFile(null); setIngestSkemaPreview(""); }} className="text-red-500 hover:text-red-700 font-bold">✕</button>
                                   </div>
                                 )}
                               </div>
@@ -1536,7 +1485,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-mono font-bold text-slate-500 uppercase tracking-wider mb-1.5">Bahagian Soalan (Format Peperiksaan)</label>
+                          <label className="block text-xs font-mono font-bold text-slate-500 uppercase tracking-wider mb-1.5">Bahagian Soalan (Format Kertas 2)</label>
                           <select
                             value={examPaperTypeInput}
                             onChange={e => setExamPaperTypeInput(e.target.value as any)}
@@ -1544,7 +1493,6 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                           >
                             <option value="struct">Bahagian A — Struktur (Kertas 2)</option>
                             <option value="essay">Bahagian B/C — Esei (Kertas 2)</option>
-                            <option value="kertas_1">Kertas 1 — Objektif (MCQ)</option>
                           </select>
                         </div>
                       </div>
@@ -1640,37 +1588,20 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                             </div>
                           </div>
 
-                          {confirmDeleteExamId === ex.id ? (
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start animate-pulse">
-                              <button
-                                onClick={() => handleDeleteExam(ex.id)}
-                                className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 rounded-lg text-xs font-bold text-white transition shadow-sm"
-                              >
-                                Pasti?
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteExamId(null)}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
-                              >
-                                Batal
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start">
-                              <button
-                                onClick={() => handleStartEditExam(ex)}
-                                className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
-                              >
-                                Sunting
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteExamId(ex.id)}
-                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-bold text-rose-600 transition"
-                              >
-                                Padam
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start">
+                            <button
+                              onClick={() => handleStartEditExam(ex)}
+                              className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 transition"
+                            >
+                              Sunting
+                            </button>
+                            <button
+                              onClick={() => handleDeleteExam(ex.id)}
+                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-bold text-rose-600 transition"
+                            >
+                              Padam
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
