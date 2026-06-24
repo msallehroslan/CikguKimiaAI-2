@@ -50,40 +50,19 @@ body {
 .prose pre { @apply bg-slate-50 border border-slate-200; }
 .prose-invert pre { @apply bg-slate-800 border-slate-700; }
 
-/* Interactive micro-animations */
-@keyframes shimmer-slide {
-  0% { transform: translateX(-150%); }
-  100% { transform: translateX(300%); }
+/* 3D Card Flip Utilities */
+.preserve-3d {
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
 }
 
-@keyframes float-y {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-4px); }
+.perspective-1000 {
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
 }
 
-@keyframes count-pop {
-  0% { transform: scale(0.85); opacity: 0.5; }
-  60% { transform: scale(1.08); }
-  100% { transform: scale(1); opacity: 1; }
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
-@keyframes progress-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.animate-float { animation: float-y 3s ease-in-out infinite; }
-.animate-count-pop { animation: count-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-
-/* Card shimmer sweep */
-.card-shimmer::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(90deg, transparent 20%, rgba(255,255,255,0.35) 50%, transparent 80%);
-  transform: translateX(-150%);
-  pointer-events: none;
-}
-.card-shimmer:hover::after {
-  animation: shimmer-slide 0.65s ease-in-out;
-}

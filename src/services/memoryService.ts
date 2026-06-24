@@ -52,6 +52,14 @@ export interface StudentMemory {
   isSubscriber?: boolean;
   subscriptionPlan?: string;
 
+  // Reminders preferences
+  reminderPrefs?: {
+    channel: "off" | "telegram" | "in-app";
+    preferredHour: number;
+    telegramChatId?: number | null;
+    lastSent?: number | null;
+  };
+
   // legacy — kept for back-compat, no longer used
   neuralEnergy?: number;
   lastEnergyRefill?: number;

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Send, User, X, ImagePlus, FlaskConical, RefreshCw, ClipboardCheck,
   LogOut, Atom, MoreVertical, Sparkles, Calculator, ListChecks, PencilLine, Beaker,
-  Menu, Trophy, BookOpen, Camera
+  Menu, Trophy, BookOpen, Camera, Layers
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,6 +26,7 @@ import { BiologyGlossary } from "./BiologyGlossary";
 import { CapDialog } from "./CapDialog";
 import { MemoryPanel } from "./MemoryPanel";
 import { ResetConfirmDialog } from "./ResetConfirmDialog";
+import { FlashcardHub } from "./FlashcardHub";
 
 const cleanMessageText = (txt: string) => {
   if (!txt) return "";
@@ -97,6 +98,7 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
   const [showPhysicsFormulas, setShowPhysicsFormulas] = useState(false);
   const [showBiologyGlossary, setShowBiologyGlossary] = useState(false);
+  const [showFlashcards, setShowFlashcards] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -675,12 +677,17 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-900 flex-shrink-0 ring-2 ring-white shadow-sm">
             <img
-              src="/logo.png"
+              src={activeSub.avatar}
               alt={activeSub.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover object-top"
               onError={(e) => {
-                e.currentTarget.style.display = "none";
-                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-900 text-white text-xs font-semibold">${activeSub.logoShort}</div>`;
+                // If avatar fails, try logo.png as first backup
+                e.currentTarget.src = "/logo.png";
+                e.currentTarget.onerror = () => {
+                  // If both fail, fall back to logo initials
+                  e.currentTarget.style.display = "none";
+                  e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-900 text-white text-xs font-semibold">${activeSub.logoShort}</div>`;
+                };
               }}
             />
           </div>
@@ -764,23 +771,45 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
                       >
                         <Atom className="w-4 h-4" /> Jadual Berkala
                       </button>
+                      <button
+                        onClick={() => { setShowFlashcards(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700 font-medium"
+                      >
+                        <Layers className="w-4 h-4 text-teal-600" /> Kad Imbas Kimia
+                      </button>
                     </>
                   )}
                   {selectedSubjectId === "physics" && (
-                    <button
-                      onClick={() => { setShowPhysicsFormulas(true); setToolsOpen(false); }}
-                      className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-sky-50 text-sky-700 font-medium"
-                    >
-                      <Calculator className="w-4 h-4" /> Hub Rumus Fizik
-                    </button>
+                    <>
+                      <button
+                        onClick={() => { setShowPhysicsFormulas(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-sky-50 text-sky-700 font-medium"
+                      >
+                        <Calculator className="w-4 h-4" /> Hub Rumus Fizik
+                      </button>
+                      <button
+                        onClick={() => { setShowFlashcards(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-sky-50 text-sky-700 font-medium"
+                      >
+                        <Layers className="w-4 h-4 text-sky-600" /> Kad Imbas Fizik
+                      </button>
+                    </>
                   )}
                   {selectedSubjectId === "biology" && (
-                    <button
-                      onClick={() => { setShowBiologyGlossary(true); setToolsOpen(false); }}
-                      className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-emerald-50 text-emerald-700 font-medium"
-                    >
-                      <Atom className="w-4 h-4" /> Glosari Biologi
-                    </button>
+                    <>
+                      <button
+                        onClick={() => { setShowBiologyGlossary(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-emerald-50 text-emerald-700 font-medium"
+                      >
+                        <Atom className="w-4 h-4" /> Glosari Biologi
+                      </button>
+                      <button
+                        onClick={() => { setShowFlashcards(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-emerald-50 text-emerald-700 font-medium"
+                      >
+                        <Layers className="w-4 h-4 text-emerald-600" /> Kad Imbas Biologi
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => { setShowMemory(true); setToolsOpen(false); }}
@@ -882,7 +911,20 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
             }}
           />
         )}
-        {showMemory && <MemoryPanel memory={memory} onClose={() => setShowMemory(false)} />}
+        {showFlashcards && (
+          <FlashcardHub 
+            onClose={() => setShowFlashcards(false)} 
+            subjectId={selectedSubjectId} 
+          />
+        )}
+        {showMemory && (
+          <MemoryPanel
+            memory={memory}
+            userId={user?.uid || ""}
+            onClose={() => setShowMemory(false)}
+            onUpdateMemory={(newMem) => setMemory(newMem)}
+          />
+        )}
         {capOpen && (
           <CapDialog
             resetAt={memoryService.getNextResetAt()}
@@ -1001,7 +1043,17 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
                           </div>
                         ) : (
                           <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-900 ring-2 ring-white">
-                            <img src="/logo.png" alt="Cikgu" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                            <img
+                              src={activeSub.avatar}
+                              alt="Cikgu"
+                              className="w-full h-full object-cover object-top"
+                              onError={(e) => {
+                                e.currentTarget.src = "/logo.png";
+                                e.currentTarget.onerror = () => {
+                                  e.currentTarget.style.display = "none";
+                                };
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -1244,14 +1296,38 @@ export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatPr
                 <Camera className="w-5 h-5" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => setShowPeriodicTable(true)}
-                className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95 shrink-0"
-                title="Buka Jadual Berkala"
-              >
-                <Atom className="w-5 h-5" />
-              </button>
+              {selectedSubjectId === "chemistry" && (
+                <button
+                  type="button"
+                  onClick={() => setShowPeriodicTable(true)}
+                  className="p-2.5 rounded-xl bg-white text-blue-500 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-all active:scale-95 shrink-0"
+                  title="Buka Jadual Berkala"
+                >
+                  <Atom className="w-5 h-5" />
+                </button>
+              )}
+
+              {selectedSubjectId === "physics" && (
+                <button
+                  type="button"
+                  onClick={() => setShowPhysicsFormulas(true)}
+                  className="p-2.5 rounded-xl bg-white text-sky-600 hover:text-sky-700 hover:bg-sky-50 border border-slate-200 transition-all active:scale-95 shrink-0"
+                  title="Buka Hub Rumus Fizik"
+                >
+                  <Calculator className="w-5 h-5" />
+                </button>
+              )}
+
+              {selectedSubjectId === "biology" && (
+                <button
+                  type="button"
+                  onClick={() => setShowBiologyGlossary(true)}
+                  className="p-2.5 rounded-xl bg-white text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition-all active:scale-95 shrink-0"
+                  title="Buka Glosari Biologi"
+                >
+                  <BookOpen className="w-5 h-5" />
+                </button>
+              )}
 
             <textarea
               value={input}

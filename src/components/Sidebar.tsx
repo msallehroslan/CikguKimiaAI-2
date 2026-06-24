@@ -130,6 +130,10 @@ export function Sidebar({
               src={activeSubjectObj.avatar}
               alt={activeSubjectObj.name}
               className="w-full h-full object-cover object-top"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-800 text-white text-sm font-bold">${activeSubjectObj.logoShort}</div>`;
+              }}
             />
           </div>
           <div>
@@ -352,19 +356,8 @@ export function Sidebar({
               </div>
             </div>
           </div>
-          {/* Daily message progress bar */}
-          <div className="space-y-1">
-            <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
-              <motion.div
-                className="h-full bg-brand-accent rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min(100, (dailyMessages / (isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP)) * 100)}%` }}
-                transition={{ duration: 0.9, ease: "easeOut" }}
-              />
-            </div>
-            <div className="text-[9px] font-mono text-slate-500 tracking-wider text-center">
-              {isEffectiveSubscriber ? "Sokongan Prioriti GPU aktif" : "reset 5:00 pagi MYT"}
-            </div>
+          <div className="text-[9px] font-mono text-slate-500 tracking-wider text-center">
+            {isEffectiveSubscriber ? "Sokongan Prioriti GPU aktif" : "reset 5:00 pagi MYT"}
           </div>
         </div>
       </motion.aside>
@@ -378,51 +371,35 @@ export function Sidebar({
 }
 
 function TopicRow({ topic, selected, onClick }: { topic: Topic; selected: boolean; onClick: () => void }) {
+  // Convert id pattern e.g. f4-c2, f4-p3, f4-b4 safely to chapter numbers
   const chapterNumber = topic.id.replace(/^f\d-[cpb]/, "");
-  const isForm4 = topic.form === 4;
 
   return (
-    <motion.button
-      whileHover={!selected ? { x: 3 } : {}}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+    <button
       onClick={onClick}
       className={cn(
-        "w-full text-left py-2.5 rounded-lg transition-all flex items-start gap-3 group relative pl-4 pr-3",
+        "w-full text-left px-3 py-2.5 rounded-lg transition flex items-start gap-3 group relative",
         selected
           ? "text-white"
-          : "hover:bg-white/5 text-slate-400 hover:text-white"
+          : "hover:bg-white/5 text-slate-400 hover:text-slate-200"
       )}
     >
       {selected && (
-        <>
-          <motion.div
-            layoutId="activeTopicBg"
-            className="absolute inset-0 bg-white/10 rounded-lg"
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
-          />
-          <motion.div
-            layoutId="activeTopicLine"
-            className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3/4 rounded-full bg-brand-accent"
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
-          />
-        </>
+        <motion.div
+          layoutId="activeTopicBg"
+          className="absolute inset-0 bg-white/10 rounded-lg"
+          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        />
       )}
       <span className="relative z-10 flex items-start gap-3 w-full">
-        <BookOpen className={cn(
-          "w-3.5 h-3.5 mt-0.5 flex-shrink-0 transition-colors",
-          selected
-            ? "text-brand-accent"
-            : isForm4
-              ? "text-emerald-600/70 group-hover:text-emerald-400"
-              : "text-sky-600/70 group-hover:text-sky-400"
-        )} />
+        <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-amber-300" : "text-slate-500")} />
         <div className="min-w-0">
           <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
-          <div className="text-[9px] font-mono opacity-40 mt-0.5">
+          <div className="text-[9px] font-mono opacity-50 mt-0.5">
             Bab {chapterNumber}
           </div>
         </div>
       </span>
-    </motion.button>
+    </button>
   );
 }

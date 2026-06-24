@@ -191,6 +191,7 @@ export function TopicExplorer({ onTopicSelect }: TopicExplorerProps) {
         
         <button
           onClick={() => {
+            console.log('Button clicked!');
             (onTopicSelect as any)(null);
           }}
           className="group relative flex items-center gap-4 px-12 py-6 bg-white text-brand-navy hover:bg-blue-50 focus:ring-4 focus:ring-blue-500/20 rounded-[2.5rem] font-black text-lg transition-all shadow-2xl active:scale-95 whitespace-nowrap overflow-hidden"

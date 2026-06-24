@@ -35,9 +35,9 @@ const WEB_APP_URL =
   "https://ais-pre-plschybuw4bxx5jgbdpsgu-244423792092.asia-southeast1.run.app";
 
 // Models — tunable via env so you can roll back without code changes
-const MODEL_CHAT     = process.env.GEMINI_MODEL_CHAT     || "gemini-2.5-flash";
-const MODEL_ANALYSER = process.env.GEMINI_MODEL_ANALYSER || "gemini-2.5-flash";
-const MODEL_SUMMARY  = process.env.GEMINI_MODEL_SUMMARY  || "gemini-2.5-flash";
+const MODEL_CHAT     = process.env.GEMINI_MODEL_CHAT     || "gemini-3.5-flash";
+const MODEL_ANALYSER = process.env.GEMINI_MODEL_ANALYSER || "gemini-3.5-flash"; 
+const MODEL_SUMMARY  = process.env.GEMINI_MODEL_SUMMARY  || "gemini-3.5-flash";
 
 const menuKeyboard = Markup.inlineKeyboard([
   Markup.button.url("Buka Cikgu Kimia App", WEB_APP_URL),
@@ -288,6 +288,10 @@ TELEGRAM:
 - Use Markdown **bold** / *italic*, not HTML tags.
 - Make replies punchy, structured with bullets.`;
 
+const FULL_RAG_TEXT = SYLLABUS_KNOWLEDGE_BASE
+  .map(t => `${t.title}\n${t.context}\nKey Facts:\n- ${t.keyPoints.join("\n- ")}`)
+  .join("\n\n---\n\n");
+
 /**
  * Build the small per-request *dynamic* context.
  * This is appended via `systemInstruction` while the heavy lifting sits in cachedContent.
@@ -419,6 +423,23 @@ async function startServer() {
       } catch (err) { console.error("TG /menu error:", err); }
     });
 
+    bot.command("link", async (ctx) => {
+      try {
+        const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+        await setDoc(doc(db, "telegram_link_codes", code), {
+          chatId: ctx.from.id,
+          createdAt: serverTimestamp(),
+        });
+        await ctx.reply(
+          `Tunjuk kod ini di aplikasi web untuk pasangkan akaun anda:\n\n<b>${code}</b>\n\nKod tamat tempoh dalam 5 minit.`,
+          { parse_mode: "HTML" }
+        );
+      } catch (err) {
+        console.error("TG /link error:", err);
+        await ctx.reply("Maaf, terdapat ralat semasa menjana kod pautan.");
+      }
+    });
+
     bot.on("photo", async (ctx) => {
       const photo = ctx.message.photo.pop();
       if (!photo) return;
@@ -517,6 +538,74 @@ async function startServer() {
       models: { chat: MODEL_CHAT, analyser: MODEL_ANALYSER, summary: MODEL_SUMMARY },
       kbTopics: kbByTopicId.size,
     });
+  });
+
+  // ─── cron reminders (Option B) ──────────────────────────────────────────
+  app.get("/api/cron/send-reminders", async (req, res) => {
+    const { secret } = req.query;
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (!cronSecret || secret !== cronSecret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+      console.log("[CRON] Running sendDailyReminders job...");
+      const snap = await getDocs(collection(db, "users"));
+      let sentCount = 0;
+
+      for (const userDoc of snap.docs) {
+        const u = userDoc.data();
+        const prefs = u.reminderPrefs;
+        if (!prefs || prefs.channel === "off") continue;
+
+        const lastActive = u.lastActiveDay
+          ? Math.floor((Date.now() - Date.parse(u.lastActiveDay)) / 86_400_000)
+          : 999;
+
+        // Only nudge users gone 2–14 days; don't pester active users or fully-lapsed ones
+        if (lastActive < 2 || lastActive > 14) continue;
+
+        // Don't double-send within 24h
+        if (prefs.lastSent && Date.now() - prefs.lastSent < 24 * 60 * 60 * 1000) continue;
+
+        // Match preferredHour (default: 19 / 7 PM MYT)
+        const preferredHour = typeof prefs.preferredHour === "number" ? prefs.preferredHour : 19;
+        const currentHourMYT = new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCHours();
+        
+        // If query param 'force=true' is passed, skip hour check (handy for testing)
+        if (req.query.force !== "true" && currentHourMYT !== preferredHour) {
+          continue;
+        }
+
+        const weakTopic = (u.weakTopics ?? [])[0];
+        const message = weakTopic
+          ? `🧪 Anda tinggalkan bab *${weakTopic}* ${lastActive} hari lepas dlm Cikgu AI. Cuba 3 soalan ringkas hari ini? 📝\n\n${WEB_APP_URL}`
+          : `🧪 Sudah ${lastActive} hari anda tidak belajar dlm Cikgu AI. Jom teruskan streak belajar anda hari ini! 🔥\n\n${WEB_APP_URL}`;
+
+        if (prefs.channel === "telegram" && prefs.telegramChatId) {
+          if (bot) {
+            try {
+              await bot.telegram.sendMessage(prefs.telegramChatId, message, { parse_mode: "Markdown" });
+            } catch (err) {
+              console.error(`[CRON] Fail to send Telegram to ${prefs.telegramChatId}:`, err);
+            }
+          }
+        }
+
+        const updatedPrefs = {
+          ...prefs,
+          lastSent: Date.now()
+        };
+        await setDoc(doc(db, "users", userDoc.id), { reminderPrefs: updatedPrefs }, { merge: true });
+        sentCount++;
+      }
+
+      res.json({ success: true, sentCount });
+    } catch (error: any) {
+      console.error("[CRON] Error sending reminders:", error);
+      res.status(500).json({ error: error.message || String(error) });
+    }
   });
 
   // ─── discovery (collective learning) ────────────────────────────────────
@@ -637,10 +726,11 @@ async function startServer() {
   // Supports TWO assets: assets[0] = kertas soalan, assets[1] = skema (optional)
   // If both provided, Gemini matches questions with answers automatically
   app.post("/api/admin/exams/analyse", async (req, res) => {
-    const { email, questionText, assets } = req.body as {
+    const { email, questionText, assets, subjectId } = req.body as {
       email: string;
       questionText?: string;
       assets?: { mimeType: string; data: string; label?: string }[];
+      subjectId?: string;
     };
     if (!email || !isAdmin(email)) {
       return res.status(403).json({ error: "Unauthorized" });
@@ -663,7 +753,10 @@ async function startServer() {
         }
       }
 
-      const allowedTopicsPrompt = SYLLABUS_TOPICS.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
+      const subId = (subjectId || "chemistry").toLowerCase();
+      const subjectObj = SUBJECTS.find(s => s.id === subId) || SUBJECTS[0];
+      const targetTopics = subjectObj ? subjectObj.topics : ALL_TOPICS;
+      const allowedTopicsPrompt = targetTopics.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
 
       const dualInstruction = hasDualPdf
         ? `You have TWO documents above:
@@ -676,14 +769,14 @@ Combine them into one structured entry per question number.`
         : `You have ONE document. Extract all questions and transcribe/generate the marking scheme.`;
 
       parts.push({
-        text: `You are Cikgu Kimia, an expert SPM Chemistry analyzer.
+        text: `You are ${subjectObj.name}, an expert SPM ${subjectObj.codename} analyzer.
 ${dualInstruction}
 
 Output EXACTLY a JSON ARRAY where each element represents one main question:
 [
   {
     "id": "unique-slug e.g. penang-2022-s2-q1",
-    "title": "Short descriptive title e.g. Jadual Berkala Kala 3",
+    "title": "Short descriptive title e.g. Hukum Hooke / Mitokondria",
     "topicId": "one of the allowed topic IDs or general",
     "paperType": "struct (parts a,b,c small marks) or essay (10-20 marks)",
     "questionText": "Full question text in Malay. Use LaTeX $...$ for formulas. Describe diagrams/tables in text. Include all sub-parts (a)(b)(c) with their mark allocations.",
@@ -1162,7 +1255,12 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+    app.get("*", (req, res, next) => {
+      if (req.originalUrl.startsWith("/api")) {
+        return next();
+      }
+      res.sendFile(path.join(distPath, "index.html"));
+    });
   }
 
   // ─── bootstrap global insights (preserved) ──────────────────────────────
@@ -1206,12 +1304,31 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
         return res.json({ greeting: greetingDoc.data().greeting, cached: true });
       }
       // Not cached — generate with Gemini
-      const topic = SYLLABUS_TOPICS.find(t => t.id === topicId);
+      const topic = ALL_TOPICS.find(t => t.id === topicId);
       if (!topic) return res.status(404).json({ error: "Topic not found" });
 
-      const kb = SYLLABUS_KNOWLEDGE_BASE.find(t => t.topicId === topicId);
+      const matchedSubject = SUBJECTS.find(s => s.topics.some(t => t.id === topicId)) || SUBJECTS[0];
+      const matchedTutorName = matchedSubject.name;
+      const matchedCodename = matchedSubject.codename;
+      const emoji = matchedSubject.id === "chemistry" ? "🧪" : matchedSubject.id === "physics" ? "⚡" : "🧬";
+
+      let kbSnippet = "";
+      try {
+        const factDoc = await getDoc(doc(db, "custom_facts", topicId));
+        if (factDoc.exists()) {
+          const fd = factDoc.data();
+          kbSnippet = `${fd.title || ""}\n${fd.context || ""}\nKey Facts:\n- ${(fd.keyPoints || []).join("\n- ")}`;
+        }
+      } catch (e) {
+        console.error("Failed to load custom fact for greeting:", e);
+      }
+
+      if (!kbSnippet) {
+        const kb = SYLLABUS_KNOWLEDGE_BASE.find(t => t.topicId === topicId);
+        kbSnippet = kb ? (typeof kb === "string" ? kb : JSON.stringify(kb)).slice(0, 1500) : "";
+      }
+
       const subtopics = topic.subtopics?.join(", ") || "";
-      const kbSnippet = kb ? (typeof kb === "string" ? kb : JSON.stringify(kb)).slice(0, 1500) : "";
 
       // Get exam frequency data for this topic
       const freqIndex = buildFrequencyIndex();
@@ -1223,12 +1340,12 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
 ${freqData.highValueBahagian.length > 0 ? `- Bahagian bernilai tinggi: ${freqData.highValueBahagian.join("; ")}` : ""}`
         : "Tiada data exam frequency lagi untuk topik ini.";
 
-      const prompt = `Kamu adalah Cikgu Kimia, tutor SPM Kimia dalam Bahasa Malaysia yang mesra pelajar.
+      const prompt = `Kamu adalah ${matchedTutorName}, tutor SPM ${matchedCodename} dalam Bahasa Malaysia yang mesra pelajar.
 Jana satu mesej alu-aluan yang MENARIK dan INFORMATIF untuk topik: "${topic.title}" (${topicId}).
 
 Gunakan format markdown ini TEPAT-TEPAT:
 
-## Selamat Datang ke ${topic.title}! 🧪
+## Selamat Datang ke ${topic.title}! ${emoji}
 
 [1-2 ayat pengenalan menarik tentang kepentingan topik ini dalam SPM]
 
@@ -1241,8 +1358,8 @@ Gunakan format markdown ini TEPAT-TEPAT:
 ### 💡 Tips Peperiksaan SPM
 [3 tip exam yang berguna dan spesifik untuk topik ini]
 
-### 🔥 Soalan Spot
-${freqData ? `[Berdasarkan data exam past year di bawah, nyatakan konsep/subtopik PALING KERAP keluar — tulis sebagai "🔥 Kerap keluar: [konsep]" dan sertakan markah/bahagian]` : "[Nyatakan 2-3 subtopik/konsep yang PALING KERAP keluar dalam SPM berdasarkan syllabus KSSM]"}
+### 💡 Soalan Spot
+${freqData ? `[Berdasarkan data exam past year di bawah, nyatakan konsep/subtopik PALING KERAP keluar — tulis sebagai "🔥 Kerap keluar: [konsep]" dan sertakan markah/bahagian]` : `[Nyatakan 2-3 subtopik/konsep yang PALING KERAP keluar dalam SPM berdasarkan syllabus KSSM ${matchedCodename}]`}
 
 ${examFreqSection}
 
