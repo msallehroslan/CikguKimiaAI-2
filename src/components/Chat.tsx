@@ -10,7 +10,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Message, GeminiService } from "../services/geminiService";
-import { Topic } from "../constants";
+import { Topic, SUBJECTS } from "../constants";
 import { cn } from "../lib/utils";
 import { memoryService, StudentMemory, DAILY_CAP, DAILY_CAP_PREMIUM, isAdmin } from "../services/memoryService";
 import { useFirebase } from "../lib/FirebaseProvider";
@@ -21,6 +21,8 @@ import { qaCache } from "../lib/qaCache";
 
 import { EquationBalancer } from "./EquationBalancer";
 import { PeriodicTable } from "./PeriodicTable";
+import { PhysicsFormulas } from "./PhysicsFormulas";
+import { BiologyGlossary } from "./BiologyGlossary";
 import { CapDialog } from "./CapDialog";
 import { MemoryPanel } from "./MemoryPanel";
 import { ResetConfirmDialog } from "./ResetConfirmDialog";
@@ -57,6 +59,7 @@ const bubbleVariants = {
 interface ChatProps {
   initialTopic?: Topic | null;
   onUpgradeClick?: () => void;
+  selectedSubjectId?: string;
 }
 
 interface SelectedImage {
@@ -68,12 +71,13 @@ interface SelectedImage {
 }
 
 // Component state and main logic
-export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
+export function Chat({ initialTopic, onUpgradeClick, selectedSubjectId }: ChatProps) {
   const { user, logout, isSubscriber } = useFirebase();
   const isEffectiveSubscriber = isSubscriber || (user ? isAdmin(user.email) : false);
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionTitle, setSessionTitle] = useState<string>(initialTopic?.title || "Cikgu Kimia");
+  const defaultTitle = selectedSubjectId === "physics" ? "Cikgu Fizik" : (selectedSubjectId === "biology" ? "Cikgu Biologi" : "Cikgu Kimia");
+  const [sessionTitle, setSessionTitle] = useState<string>(initialTopic?.title || defaultTitle);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
@@ -91,6 +95,8 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   const [showMemory, setShowMemory] = useState(false);
   const [showBalancer, setShowBalancer] = useState(false);
   const [showPeriodicTable, setShowPeriodicTable] = useState(false);
+  const [showPhysicsFormulas, setShowPhysicsFormulas] = useState(false);
+  const [showBiologyGlossary, setShowBiologyGlossary] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -127,14 +133,18 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
     const formText = topic.form ? ` (Tingkatan ${topic.form})` : "";
     let greetingText = "";
     
+    const activeSub = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+    const codename = activeSub.codename;
+    const emoji = selectedSubjectId === "physics" ? "🎡" : (selectedSubjectId === "biology" ? "🌿" : "🧪");
+
     if (topic.id.startsWith("quiz")) {
-      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan Kimia SPM anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.${subtopicsList}\n\nSila klik butang di bawah untuk mula!`;
+      greetingText = `Selamat datang ke sesi **${topic.title}**! 📝\n\nAdakah anda bersedia untuk menguji pengetahuan **${codename} SPM** anda? Cikgu akan berikan soalan objektif aras SPM satu demi satu.${subtopicsList}\n\nSila klik butang di bawah untuk mula!`;
     } else if (topic.id.startsWith("exam")) {
       greetingText = `Selamat datang ke sesi simulasi **${topic.title}**! 📑\n\nSesi ini direka untuk melatih anda menjawab soalan Kertas 2 (Bahagian A, B, atau C) seakan-akan peperiksaan SPM sebenar.${subtopicsList}\n\nSila klik butang di bawah untuk menjana set soalan simulasi anda!`;
     } else if (topic.id === "periodic-table") {
       greetingText = `Selamat datang ke meneroka **Jadual Berkala Unsur**! ${subtopicsList}\n\nSila guna borang interaktif di bawah untuk menganalisis sifat unsur, atau tanya Cikgu apa-apa soalan.`;
     } else {
-      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. 🧪${subtopicsList}\n\nApakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
+      greetingText = `Salam sejahtera! Jom kita bincangkan topik **${topic.title}**${formText} bersama-sama. ${emoji}${subtopicsList}\n\nApakah bahagian yang anda ingin fahami hari ini? Anda boleh tanya apa-apa soalan, hantar gambar soalan peperiksaan, atau pilih salah satu menu tindakan / butang tindakan di bawah untuk mula!`;
     }
     return [{
       role: "model",
@@ -221,9 +231,11 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
           }
         } else {
           if (active) {
+            const activeSub = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+            const suffixEmoji = selectedSubjectId === "physics" ? "🎡" : (selectedSubjectId === "biology" ? "🌿" : "🧪");
             setMessages([{
               role: "model",
-              text: `Salam sejahtera, ${user.displayName || "Pelajar"}! Saya Cikgu Kimia. Boleh saya bantu hari ini? 🧪\n\nPilih topik di kiri, atau tanya apa-apa.`,
+              text: `Salam sejahtera, ${user.displayName || "Pelajar"}! Saya ${activeSub.name}. Boleh saya bantu hari ini? ${suffixEmoji}\n\nPilih topik di kiri, atau tanya apa-apa.`,
               timestamp: Date.now(),
             }]);
             hasHandledInitial.current = true;
@@ -530,7 +542,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
             }
             return arr;
           });
-        }, history, initialTopic?.id);
+        }, history, initialTopic?.id, selectedSubjectId);
 
         // Handle [MASTERY] topicId +delta
         if (fullResponse.includes("[MASTERY]")) {
@@ -615,21 +627,36 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
       { id: "mark", label: "Semak Jawapan", icon: <ClipboardCheck className="w-4 h-4 text-blue-500" />, prompt: "Cikgu, sila semak jawapan saya ini berdasarkan skema markah SPM terbaru." },
     ];
 
+    const activeSub = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+    const codename = activeSub.codename;
+
     if (!initialTopic) return [
       ...base,
-      { id: "intro", label: "Apa itu Kimia?", icon: <Sparkles className="w-4 h-4 text-amber-500" />, prompt: "Cikgu, boleh terangkan secara ringkas apa yang paling penting untuk saya tahu dalam Kimia SPM?" },
+      { id: "intro", label: `Apa itu ${codename}?`, icon: <Sparkles className="w-4 h-4 text-amber-500" />, prompt: `Cikgu, boleh terangkan secara ringkas apa yang paling penting untuk saya tahu dalam ${codename} SPM?` },
       { id: "tips", label: "Tips Skor A", icon: <Trophy className="w-4 h-4 text-orange-500" />, prompt: "Apakah topik-topik KBAT yang wajib saya kuasai untuk skor A+?" },
     ];
 
     const topicId = initialTopic.id;
     const actions = [...base];
 
-    if (topicId.includes("chapter") || topicId.includes("-c")) {
+    if (selectedSubjectId === "chemistry" && (topicId.includes("chapter") || topicId.includes("-c"))) {
        actions.push({ id: "apparatus", label: "Lukis Radas", icon: <PencilLine className="w-4 h-4 text-rose-500" />, prompt: "Cikgu, boleh lukiskan rajah susunan radas (SVG) untuk eksperimen utama dalam bab ini?" });
     }
 
-    if (topicId === "f4-c3" || topicId === "f5-c1") { // Mole concept or Redox
+    if (selectedSubjectId === "physics" && (topicId.includes("chapter") || topicId.includes("-p"))) {
+       actions.push({ id: "apparatus", label: "Rajah Eksperimen", icon: <PencilLine className="w-4 h-4 text-rose-500" />, prompt: "Cikgu, boleh lukiskan susunan radas eksperimen utama dlm topik ini dlm bentuk SVG?" });
+    }
+
+    if (selectedSubjectId === "biology" && (topicId.includes("chapter") || topicId.includes("-b"))) {
+       actions.push({ id: "apparatus", label: "Rajah Struktur", icon: <PencilLine className="w-4 h-4 text-rose-500" />, prompt: "Cikgu, boleh lukiskan rajah struktur penting dlm bab ini dlm bentuk diagram SVG berserta label?" });
+    }
+
+    if (selectedSubjectId === "chemistry" && (topicId === "f4-c3" || topicId === "f5-c1")) { // Mole concept or Redox
        actions.push({ id: "balancer", label: "Imbang Persamaan", icon: <Calculator className="w-4 h-4 text-emerald-500" />, prompt: "Cikgu, bantu saya imbang satu persamaan kimia yang susah dalam bab ini." });
+    } else if (selectedSubjectId === "physics" && (topicId === "f4-p1" || topicId === "f4-p2" || topicId === "f5-p1")) {
+       actions.push({ id: "formula_help", label: "Contoh Rumus", icon: <Calculator className="w-4 h-4 text-emerald-500" />, prompt: "Cikgu, boleh berikan contoh aplikasi rumus utama berserta penyelesaian langkah-demi-langkah dlm bab ini?" });
+    } else if (selectedSubjectId === "biology" && (topicId === "f4-b2" || topicId === "f4-b4")) {
+       actions.push({ id: "glossary_help", label: "Fungsi Organel", icon: <Sparkles className="w-4 h-4 text-emerald-500" />, prompt: "Cikgu, jelaskan kata kunci skema SPM untuk fungsi organel utama dlm topik ini." });
     } else {
        actions.push({ id: "summary", label: "Ringkasan Bab", icon: <BookOpen className="w-4 h-4 text-slate-500" />, prompt: "Cikgu, boleh berikan ringkasan mind-map (teks) untuk bab ini?" });
     }
@@ -638,6 +665,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
   };
 
   const dynamicQuickActions = getTopicQuickActions();
+  const activeSub = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
 
   // ── render ────────────────────────────────────────────────────────────
   return (
@@ -648,11 +676,11 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
           <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-900 flex-shrink-0 ring-2 ring-white shadow-sm">
             <img
               src="/logo.png"
-              alt="Cikgu Kimia"
+              alt={activeSub.name}
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
-                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-900 text-white text-xs font-semibold">CK</div>`;
+                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-900 text-white text-xs font-semibold">${activeSub.logoShort}</div>`;
               }}
             />
           </div>
@@ -722,18 +750,38 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                       <ClipboardCheck className="w-4 h-4" /> Exam Mode
                     </button>
                   )}
-                  <button
-                    onClick={() => { setShowBalancer(true); setToolsOpen(false); }}
-                    className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700"
-                  >
-                    <Calculator className="w-4 h-4" /> Imbang persamaan
-                  </button>
-                  <button
-                    onClick={() => { setShowPeriodicTable(true); setToolsOpen(false); }}
-                    className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700"
-                  >
-                    <Atom className="w-4 h-4" /> Jadual Berkala
-                  </button>
+                  {selectedSubjectId === "chemistry" && (
+                    <>
+                      <button
+                        onClick={() => { setShowBalancer(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700"
+                      >
+                        <Calculator className="w-4 h-4" /> Imbang persamaan
+                      </button>
+                      <button
+                        onClick={() => { setShowPeriodicTable(true); setToolsOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700"
+                      >
+                        <Atom className="w-4 h-4" /> Jadual Berkala
+                      </button>
+                    </>
+                  )}
+                  {selectedSubjectId === "physics" && (
+                    <button
+                      onClick={() => { setShowPhysicsFormulas(true); setToolsOpen(false); }}
+                      className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-sky-50 text-sky-700 font-medium"
+                    >
+                      <Calculator className="w-4 h-4" /> Hub Rumus Fizik
+                    </button>
+                  )}
+                  {selectedSubjectId === "biology" && (
+                    <button
+                      onClick={() => { setShowBiologyGlossary(true); setToolsOpen(false); }}
+                      className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-emerald-50 text-emerald-700 font-medium"
+                    >
+                      <Atom className="w-4 h-4" /> Glosari Biologi
+                    </button>
+                  )}
                   <button
                     onClick={() => { setShowMemory(true); setToolsOpen(false); }}
                     className="w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm hover:bg-slate-50 text-slate-700"
@@ -818,6 +866,22 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
 
       <AnimatePresence>
         {showBalancer && <EquationBalancer onClose={() => setShowBalancer(false)} />}
+        {showPhysicsFormulas && (
+          <PhysicsFormulas
+            onClose={() => setShowPhysicsFormulas(false)}
+            onAskTutor={(promptText) => {
+              handleSend(promptText);
+            }}
+          />
+        )}
+        {showBiologyGlossary && (
+          <BiologyGlossary
+            onClose={() => setShowBiologyGlossary(false)}
+            onAskTutor={(promptText) => {
+              handleSend(promptText);
+            }}
+          />
+        )}
         {showMemory && <MemoryPanel memory={memory} onClose={() => setShowMemory(false)} />}
         {capOpen && (
           <CapDialog
@@ -892,7 +956,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                 <div className="space-y-2">
                   <h3 className="text-2xl font-display text-slate-900">Apa yang kita nak belajar hari ini?</h3>
                   <p className="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
-                    Tanya apa-apa soalan Kimia, hantar gambar soalan peperiksaan, atau guna butang menu untuk alat khas.
+                    Tanya apa-apa soalan {activeSub.codename}, hantar gambar soalan peperiksaan, atau guna butang menu untuk alat khas.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md pt-4">
@@ -1198,7 +1262,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
                   handleSend();
                 }
               }}
-              placeholder={selectedImages.length > 0 ? "Apa yang nak Cikgu buat dengan fail ini?" : "Tanya Cikgu Kimia... (cth: Terangkan beza elektrolit)"}
+              placeholder={selectedImages.length > 0 ? "Apa yang nak Cikgu buat dengan fail ini?" : `Tanya ${activeSub.name}... (cth: Terangkan konsep utama)`}
               rows={1}
               className="flex-grow py-2.5 px-2 bg-transparent focus:outline-none text-slate-800 resize-none max-h-32 text-sm sm:text-base"
             />
@@ -1214,7 +1278,7 @@ export function Chat({ initialTopic, onUpgradeClick }: ChatProps) {
           </form>
 
           <div className="text-[10px] font-mono text-slate-400 text-center tracking-wider">
-            Cikgu Kimia · bertarjamah daripada KSSM SPM
+            {activeSub.name} · diterjemahkan daripada KSSM SPM
           </div>
         </div>
       </div>

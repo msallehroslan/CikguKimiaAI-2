@@ -89,7 +89,7 @@ export const ConnectionStatus: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   {status.gemini === 'online' ? <Cloud className="w-4 h-4 text-emerald-500" /> : <CloudOff className="w-4 h-4 text-rose-500" />}
-                  <span>Cikgu Kimia AI</span>
+                  <span>Cikgu AI (Enjin Pintar)</span>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                   status.gemini === 'online' ? 'bg-emerald-50 text-emerald-600' : 

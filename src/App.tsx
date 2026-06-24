@@ -15,13 +15,16 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { SubscriptionModal } from "./components/SubscriptionModal";
 
 import { FirebaseProvider, useFirebase } from "./lib/FirebaseProvider";
-import { Topic, SYLLABUS_TOPICS } from "./constants";
+import { Topic, ALL_TOPICS, SUBJECTS } from "./constants";
 import { useRoute, navigate, matchTopic } from "./lib/router";
 
 function AppContent() {
   const { user, loading, error, signIn } = useFirebase();
   const route = useRoute();
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(() => {
+    return localStorage.getItem("selected_subject_id") || "chemistry";
+  });
   const [chatKey, setChatKey] = useState(0);
   const [showOnboard, setShowOnboard] = useState(false);
 
@@ -32,22 +35,42 @@ function AppContent() {
       setSelectedTopic(null);
       return;
     }
-    const fromSyllabus = SYLLABUS_TOPICS.find(t => t.id === topicId);
+    const fromSyllabus = ALL_TOPICS.find(t => t.id === topicId);
     if (fromSyllabus) {
       setSelectedTopic(fromSyllabus);
+      // Auto-detect and switch subject
+      const matchedSubject = SUBJECTS.find(s => s.topics.some(t => t.id === topicId));
+      if (matchedSubject && matchedSubject.id !== selectedSubjectId) {
+        setSelectedSubjectId(matchedSubject.id);
+        localStorage.setItem("selected_subject_id", matchedSubject.id);
+      }
       return;
     }
     // Latihan modes / specials
+    const normalizedId = topicId.replace(/^(chemistry|physics|biology)-/, "");
     const synthetic = {
       "quiz-obj":       { title: "Kuiz Objektif" },
       "periodic-table": { title: "Jadual Berkala" },
       "exam-struct":    { title: "Kertas 2 — Struktur" },
       "exam-essay":     { title: "Kertas 2 — Esei" },
     } as Record<string, { title: string }>;
-    if (synthetic[topicId]) {
-      setSelectedTopic({ id: topicId, title: synthetic[topicId].title, form: 4, description: "", subtopics: [] });
+
+    if (synthetic[normalizedId]) {
+      const parentSubjectId = topicId.split("-")[0] || selectedSubjectId;
+      const subName = SUBJECTS.find(s => s.id === parentSubjectId)?.codename || "Silibus";
+      setSelectedTopic({
+        id: topicId,
+        title: `${synthetic[normalizedId].title} (${subName})`,
+        form: 4,
+        description: "",
+        subtopics: []
+      });
+      if (parentSubjectId !== selectedSubjectId) {
+        setSelectedSubjectId(parentSubjectId);
+        localStorage.setItem("selected_subject_id", parentSubjectId);
+      }
     }
-  }, [route]);
+  }, [route, selectedSubjectId]);
 
   // Trigger onboarding on first login
   useEffect(() => {
@@ -55,6 +78,11 @@ function AppContent() {
       setShowOnboard(true);
     }
   }, [user]);
+
+  const handleSubjectSelect = (subjId: string) => {
+    setSelectedSubjectId(subjId);
+    localStorage.setItem("selected_subject_id", subjId);
+  };
 
   const handleTopicSelect = (topic: Topic | null) => {
     if (topic) {
@@ -87,6 +115,8 @@ function AppContent() {
         onTopicSelect={handleTopicSelect}
         onHome={() => handleTopicSelect(null)}
         onUpgradeClick={() => setIsSubscriptionOpen(true)}
+        selectedSubjectId={selectedSubjectId}
+        onSubjectSelect={handleSubjectSelect}
       />
 
       <main className="flex-grow flex flex-col relative h-screen overflow-hidden">
@@ -100,7 +130,7 @@ function AppContent() {
               transition={{ duration: 0.18 }}
               className="flex-grow h-full"
             >
-              <Chat initialTopic={selectedTopic} onUpgradeClick={() => setIsSubscriptionOpen(true)} />
+              <Chat initialTopic={selectedTopic} onUpgradeClick={() => setIsSubscriptionOpen(true)} selectedSubjectId={selectedSubjectId} />
             </motion.div>
           ) : (
             <motion.div
@@ -111,7 +141,12 @@ function AppContent() {
               transition={{ duration: 0.18 }}
               className="flex-grow h-full"
             >
-              <Dashboard onPickTopic={handleTopicSelect} onUpgradeClick={() => setIsSubscriptionOpen(true)} />
+              <Dashboard
+                onPickTopic={handleTopicSelect}
+                onUpgradeClick={() => setIsSubscriptionOpen(true)}
+                selectedSubjectId={selectedSubjectId}
+                onSubjectSelect={handleSubjectSelect}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -147,19 +182,19 @@ function SignInScreen({ error, onSignIn }: { error: string | null; onSignIn: () 
         <div className="relative">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl overflow-hidden bg-brand-navy">
-              <img src="/logo.png" alt="Cikgu Kimia" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+              <img src="/logo.png" alt="Cikgu AI" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             </div>
             <div>
-              <div className="font-semibold text-slate-900 text-sm font-display">Cikgu Kimia</div>
+              <div className="font-semibold text-slate-900 text-sm font-display">Iotera Tutor AI</div>
               <div className="text-[10px] font-mono text-slate-400 tracking-widest uppercase">by Iotera Technologies</div>
             </div>
           </div>
 
           <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl text-slate-900 leading-[0.95] tracking-tight mt-20">
-            Belajar Kimia<br />SPM, <em className="text-brand-accent">dengan tenang</em>.
+            Bimbingan AI<br />SPM, <em className="text-brand-accent">dengan tenang</em>.
           </h1>
           <p className="text-slate-600 mt-6 text-lg leading-relaxed max-w-md">
-            Tutor AI untuk silabus KSSM Tingkatan 4 & 5. Tanya soalan, hantar gambar, dan dapat tunjuk ajar berasaskan skema markah SPM rasmi.
+            Tutor AI pintar untuk subjek Kimia, Fizik, dan Biologi KSSM Tingkatan 4 & 5. Tanya soalan, hantar gambar, dan kuasai skema markah SPM rasmi.
           </p>
         </div>
 

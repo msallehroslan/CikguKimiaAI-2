@@ -1,11 +1,11 @@
-import { SYLLABUS_TOPICS, Topic } from "../constants";
+import { SUBJECTS, ALL_TOPICS, Topic } from "../constants";
 import {
-  FlaskConical, BookOpen, GraduationCap, Menu, X, ChevronDown,
+  BookOpen, GraduationCap, Menu, X, ChevronDown,
   Target, ClipboardCheck, History, Atom, Home, Flame
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useFirebase } from "../lib/FirebaseProvider";
@@ -17,16 +17,25 @@ interface SidebarProps {
   onHome?: () => void;
   onUpgradeClick?: () => void;
   className?: string;
+  selectedSubjectId: string;
+  onSubjectSelect: (subjectId: string) => void;
 }
 
 /**
- * Sidebar v2:
- *  - Renamed everywhere from "AI Nexus / Neural Core" → "Cikgu Kimia"
- *  - Footer shows STREAK + messages remaining (not "Neural Energy" battery)
- *  - Decorative pulsing dots / italic uppercase removed
- *  - Polls memory every 60s (was 30s) — same data, less load
+ * Sidebar v3:
+ *  - Added dynamic Multi-Subject selection (Kimia, Fizik, Biologi)
+ *  - Replaced hardcoded "Cikgu Kimia" with active subject branding
+ *  - Footer shows STREAK + messages remaining
  */
-export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick, className }: SidebarProps) {
+export function Sidebar({
+  selectedTopicId,
+  onTopicSelect,
+  onHome,
+  onUpgradeClick,
+  className,
+  selectedSubjectId,
+  onSubjectSelect,
+}: SidebarProps) {
   const { user, isSubscriber, subscriptionPlan } = useFirebase();
   const isEffectiveSubscriber = isSubscriber || (user ? isAdmin(user.email) : false);
   const [isOpen, setIsOpen] = useState(false);
@@ -36,8 +45,9 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
   const [streak, setStreak] = useState<number>(0);
   const [dailyMessages, setDailyMessages] = useState<number>(0);
 
-  const form4 = SYLLABUS_TOPICS.filter(t => t.form === 4);
-  const form5 = SYLLABUS_TOPICS.filter(t => t.form === 5);
+  const activeSubjectObj = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+  const form4 = activeSubjectObj.topics.filter(t => t.form === 4);
+  const form5 = activeSubjectObj.topics.filter(t => t.form === 5);
 
   const toggleForm = (form: number) => setExpandedForm(expandedForm === form ? null : form);
 
@@ -47,7 +57,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
     const interval = setInterval(refresh, 60_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, selectedTopicId, isEffectiveSubscriber]);
+  }, [user, selectedTopicId, isEffectiveSubscriber, selectedSubjectId]);
 
   const refresh = async () => {
     if (!user) return;
@@ -68,7 +78,9 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
       snap.docs.forEach(d => {
         const data = d.data();
         if (!data.topicId || unique.has(data.topicId)) return;
-        const found = SYLLABUS_TOPICS.find(t => t.id === data.topicId) || {
+        
+        // Find in ALL_TOPICS to handle multiselect
+        const found = ALL_TOPICS.find(t => t.id === data.topicId) || {
           id: data.topicId,
           title: data.topicId.includes("exam") ? "Exam Session" :
                  data.topicId.includes("quiz") ? "Quiz Session" :
@@ -85,7 +97,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
     } catch (e) { console.error("recent threads", e); }
   };
 
-  const remaining = Math.max(0, DAILY_CAP - dailyMessages);
+  const remaining = Math.max(0, (isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP) - dailyMessages);
 
   return (
     <>
@@ -108,29 +120,51 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
           className
         )}
       >
-        {/* Brand */}
+        {/* Brand Header */}
         <button
           onClick={() => { onHome?.(); setIsOpen(false); }}
           className="px-6 pt-6 pb-5 border-b border-white/5 text-left flex items-center gap-3 hover:bg-white/5 transition group"
         >
-          <div className="w-11 h-11 rounded-xl overflow-hidden ring-2 ring-white/10 bg-slate-800 flex-shrink-0">
-            <img
-              src="/logo.png"
-              alt="Cikgu Kimia"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full text-white font-semibold text-sm">CK</div>`;
-              }}
-            />
+          <div className="w-11 h-11 rounded-xl overflow-hidden ring-2 ring-white/10 bg-slate-800 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm">
+            {activeSubjectObj.logoShort}
           </div>
           <div>
-            <div className="font-display text-xl text-white leading-none">Cikgu Kimia</div>
+            <div className="font-display text-xl text-white leading-none">{activeSubjectObj.name}</div>
             <div className="text-[10px] font-mono text-slate-400 tracking-widest uppercase mt-1.5">
-              KSSM SPM
+              KSSM SPM Agentic
             </div>
           </div>
         </button>
+
+        {/* Subject Select Grid */}
+        <div className="px-4 py-3 border-b border-white/5 space-y-1 bg-slate-950/20">
+          <label className="text-[9px] font-mono font-semibold text-slate-500 tracking-widest uppercase block pl-1">
+            PILIHAN SUBJEK
+          </label>
+          <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl">
+            {SUBJECTS.map((sub) => {
+              const isActive = sub.id === selectedSubjectId;
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => {
+                    onSubjectSelect(sub.id);
+                    onHome?.();
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "py-1.5 px-2 rounded-lg text-[10px] font-bold transition text-center",
+                    isActive
+                      ? "bg-white text-slate-950 shadow"
+                      : "text-slate-400 hover:text-slate-200"
+                  )}
+                >
+                  {sub.codename}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Scrollable nav */}
         <nav className="flex-grow overflow-y-auto p-4 space-y-7">
@@ -154,7 +188,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
             )}
             <span className="relative z-10 flex items-center gap-3 w-full">
               <Home className="w-4 h-4" />
-              Laman utama
+              Laman utama ({activeSubjectObj.codename})
             </span>
           </button>
 
@@ -233,7 +267,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
               className="w-full px-2 mb-3 flex items-center justify-between group"
             >
               <h3 className="text-[10px] font-mono font-semibold text-slate-500 tracking-widest uppercase group-hover:text-slate-300 transition">
-                Latihan
+                Latihan Am
               </h3>
               <ChevronDown className={cn("w-3 h-3 text-slate-500 transition-transform", isLatihanExpanded && "rotate-180")} />
             </button>
@@ -247,17 +281,17 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                 <button
                   key={item.id}
                   onClick={() => {
-                    onTopicSelect({ id: item.id, title: item.title, description: item.title, form: 4, subtopics: [] });
+                    onTopicSelect({ id: `${selectedSubjectId}-${item.id}`, title: `${item.title} (${activeSubjectObj.codename})`, description: item.title, form: 4, subtopics: [] });
                     setIsOpen(false);
                   }}
                   className={cn(
                     "w-full text-left px-3 py-2.5 rounded-lg transition flex items-center gap-3 relative",
-                    selectedTopicId === item.id
+                    selectedTopicId === `${selectedSubjectId}-${item.id}`
                       ? "text-white"
                       : "bg-white/5 hover:bg-white/10 text-slate-300"
                   )}
                 >
-                  {selectedTopicId === item.id && (
+                  {selectedTopicId === `${selectedSubjectId}-${item.id}` && (
                     <motion.div
                       layoutId="activeTopicBg"
                       className="absolute inset-0 bg-brand-accent rounded-lg"
@@ -265,7 +299,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
                     />
                   )}
                   <span className="relative z-10 flex items-center gap-3 w-full">
-                    <span className={cn("opacity-60", selectedTopicId === item.id && "opacity-100")}>{item.icon}</span>
+                    <span className={cn("opacity-60", selectedTopicId === `${selectedSubjectId}-${item.id}` && "opacity-100")}>{item.icon}</span>
                     <span className="text-xs font-medium">{item.title}</span>
                   </span>
                 </button>
@@ -281,7 +315,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
             <div className="bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 rounded-2xl p-2.5 flex items-center justify-between">
               <div className="min-w-0">
                 <div className="text-[9px] font-mono font-bold text-amber-400 uppercase tracking-widest leading-none">Status</div>
-                <div className="font-display text-xs font-semibold text-white mt-1">Cikgu Pro 👑</div>
+                <div className="font-display text-xs font-semibold text-white mt-1">Pro Tutor AI 👑</div>
               </div>
               <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold text-[8px] tracking-wide uppercase px-2 py-0.5 rounded-full">
                 {subscriptionPlan === "trial" && (user && isAdmin(user.email)) ? "Admin" : (subscriptionPlan === "yearly" ? "Yly" : "Mthly")}
@@ -292,7 +326,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
               onClick={onUpgradeClick}
               className="w-full py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:scale-[1.02] active:scale-[0.98] transition rounded-2xl text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/5"
             >
-              👑 Langgan Cikgu Pro
+              👑 Langgan Pro Tutor AI
             </button>
           )}
 
@@ -309,7 +343,7 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
             <div className="flex-1 bg-white/5 border border-white/5 rounded-xl px-3 py-2.5">
               <div className="text-[9px] font-mono font-semibold text-slate-500 tracking-widest uppercase">Mesej</div>
               <div className="font-display text-xl text-white leading-none mt-1.5">
-                {Math.max(0, (isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP) - dailyMessages)}
+                {remaining}
                 <span className="text-slate-500 text-base">/{isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP}</span>
               </div>
             </div>
@@ -329,6 +363,9 @@ export function Sidebar({ selectedTopicId, onTopicSelect, onHome, onUpgradeClick
 }
 
 function TopicRow({ topic, selected, onClick }: { topic: Topic; selected: boolean; onClick: () => void }) {
+  // Convert id pattern e.g. f4-c2, f4-p3, f4-b4 safely to chapter numbers
+  const chapterNumber = topic.id.replace(/^f\d-[cpb]/, "");
+
   return (
     <button
       onClick={onClick}
@@ -347,11 +384,11 @@ function TopicRow({ topic, selected, onClick }: { topic: Topic; selected: boolea
         />
       )}
       <span className="relative z-10 flex items-start gap-3 w-full">
-        <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-brand-accent-soft" : "text-slate-500")} />
+        <BookOpen className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", selected ? "text-amber-300" : "text-slate-500")} />
         <div className="min-w-0">
           <div className="text-xs font-medium leading-snug line-clamp-2">{topic.title}</div>
           <div className="text-[9px] font-mono opacity-50 mt-0.5">
-            Bab {topic.id.split("-c")[1]}
+            Bab {chapterNumber}
           </div>
         </div>
       </span>

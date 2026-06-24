@@ -20,7 +20,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { MARKING_SCHEME_TIPS } from "./src/constants/markingScheme.ts";
-import { SYLLABUS_TOPICS } from "./src/constants";
+import { SYLLABUS_TOPICS, ALL_TOPICS, SUBJECTS } from "./src/constants";
 import { Telegraf, Markup } from "telegraf";
 import { db } from "./src/lib/firebase";
 import { collection, addDoc, query, orderBy, limit, getDocs, getDoc, serverTimestamp, doc, setDoc, deleteDoc } from "firebase/firestore";
@@ -129,11 +129,36 @@ async function buildKbIndex() {
   }
 }
 
-function ragMatch(userMessage?: string, selectedTopicId?: string): KbEntry | null {
+function isTopicInSubject(topicId: string, subjectId?: string): boolean {
+  if (!topicId) return false;
+  if (!subjectId) return true; // if no subject context, assume valid
+  const subId = subjectId.toLowerCase();
+  const subjectObj = SUBJECTS.find(s => s.id === subId);
+  if (subjectObj && subjectObj.topics && subjectObj.topics.some(t => t.id === topicId)) {
+    return true;
+  }
+  if (subId === "chemistry" && (topicId.includes("-c") || topicId.startsWith("f4-c") || topicId.startsWith("f5-c"))) return true;
+  if (subId === "physics" && (topicId.includes("-p") || topicId.startsWith("f4-p") || topicId.startsWith("f5-p"))) return true;
+  if (subId === "biology" && (topicId.includes("-b") || topicId.startsWith("f4-b") || topicId.startsWith("f5-b"))) return true;
+  return false;
+}
+
+function ragMatch(userMessage?: string, selectedTopicId?: string, selectedSubjectId?: string): KbEntry | null {
   if (userMessage) {
     const q = userMessage.toLowerCase();
+    // 1st pass: Exact contains matching WITH active subject constraint
+    if (selectedSubjectId) {
+      for (const [keyword, entry] of kbKeywordIndex) {
+        if (q.includes(keyword) && entry.topicId !== selectedTopicId && isTopicInSubject(entry.topicId, selectedSubjectId)) {
+          return entry;
+        }
+      }
+    }
+    // 2nd pass: Exact contains matching without active subject constraint (fallback)
     for (const [keyword, entry] of kbKeywordIndex) {
-      if (q.includes(keyword) && entry.topicId !== selectedTopicId) return entry;
+      if (q.includes(keyword) && entry.topicId !== selectedTopicId) {
+        return entry;
+      }
     }
   }
   if (selectedTopicId) {
@@ -142,22 +167,82 @@ function ragMatch(userMessage?: string, selectedTopicId?: string): KbEntry | nul
   }
   if (userMessage) {
     const q = userMessage.toLowerCase();
+    // 3rd pass: Keyword includes user query with subject constraint
+    if (selectedSubjectId) {
+      for (const [keyword, entry] of kbKeywordIndex) {
+        if (keyword.includes(q) && q.length > 3 && isTopicInSubject(entry.topicId, selectedSubjectId)) {
+          return entry;
+        }
+      }
+    }
+    // 4th pass: Keyword includes user query without subject constraint
     for (const [keyword, entry] of kbKeywordIndex) {
-      if (keyword.includes(q) && q.length > 3) return entry;
+      if (keyword.includes(q) && q.length > 3) {
+        return entry;
+      }
     }
   }
   return null;
 }
 
 // ─── system prompts: static (cached) + dynamic (per-request) ──────────────
-const STATIC_INSTRUCTION = `You are "Cikgu Kimia", an expert KSSM SPM Chemistry tutor (also addressed as "Cikgu").
+const SUBJECT_REGISTRY: Record<string, {
+  name: string;
+  codename: string;
+  syllabusSummary: string;
+  insights: string[];
+  tips: string;
+}> = {
+  chemistry: {
+    name: "Cikgu Kimia",
+    codename: "Kimia",
+    syllabusSummary: "Tingkatan 4:\n- Bab 2: Jirim & Struktur Atom\n- Bab 3: Konsep Mol, Formula & Persamaan\n- Bab 4: Jadual Berkala Unsur\n- Bab 5: Ikatan Kimia\n- Bab 6: Asid, Bes & Garam\n- Bab 7: Kadar Tindak Balas\n- Bab 8: Bahan Buatan dlm Industri\n\nTingkatan 5:\n- Bab 1: Keseimbangan Redoks\n- Bab 2: Sebatian Karbon\n- Bab 3: Termokimia\n- Bab 4: Polimer\n- Bab 5: Kimia Pengguna & Industri",
+    insights: [
+      "Kadar Tindak Balas: Pelajar sering terlepas terma 'frekuensi pelanggaran BERKESAN'.",
+      "Termokimia: Jawapan mestilah mengandungi cas (+/-) dan unit (kJ mol⁻¹).",
+      "Redox: Kaedah 'AN OX' + 'RED CAT' amat membantu pengecaman elektrod penderma/penerima elektron.",
+      "Penyediaan Garam: Sentiasa semak keterlarutan garam bagi menentukan tindak balas pemendakan atau peneutralan."
+    ],
+    tips: "Tegaskan penulisan persamaan kimia seimbang, formula kimia ion yang betul, dan pengiraan stoikiometri menggunakan bilangan mol secara tepat."
+  },
+  physics: {
+    name: "Cikgu Fizik",
+    codename: "Fizik",
+    syllabusSummary: "Tingkatan 4:\n- Bab 1: Pengukuran\n- Bab 2: Daya & Gerakan I\n- Bab 3: Kegravitian\n- Bab 4: Haba\n- Bab 5: Gelombang\n- Bab 6: Cahaya & Optik\n\nTingkatan 5:\n- Bab 1: Daya & Gerakan II\n- Bab 2: Tekanan\n- Bab 3: Elektrik\n- Bab 4: Keelektromagnetan\n- Bab 5: Elektronik\n- Bab 6: Fizik Nuklear\n- Bab 7: Fizik Kuantum",
+    insights: [
+      "Daya dan Gerakan: Perlu membezakan antara jisim (kg) dengan berat (N). Jelaskan inersia dengan hubungkait jisim.",
+      "Haba: Sentiasa bezakan haba pendam tentu dengan muatan haba tentu.",
+      "Cahaya & Optik: Pastikan rajah sinar menunjukkan anak panah cahaya dan kedudukan titik fokus F serta pusat optik O secara tepat.",
+      "Keelektromagnetan: Gunakan Peraturan Tangan Kanan Fleming untuk arah daya/arus aruhan."
+    ],
+    tips: "Tegaskan pemahaman konsep fizik, leraian daya (F cos theta, F sin theta), litar elektrik selari/siri, dan penggunaan unit SI m/s², kg, N, J, W, Pa secara konsisten."
+  },
+  biology: {
+    name: "Cikgu Biologi",
+    codename: "Biologi",
+    syllabusSummary: "Tingkatan 4:\n- Bab 2: Biologi Sel & Organisasi Sel\n- Bab 3: Pergerakan Bahan Merentasi Membran\n- Bab 4: Komposisi Kimia dlm Sel\n- Bab 5: Metabolisme & Enzim\n- Bab 6: Pembahagian Sel\n- Bab 7: Respirasi Sel\n- Bab 8: Sistem Respirasi\n- Bab 9: Nutrisi & Sistem Pencernaan\n- Bab 10: Pengangkutan dlm Manusia\n\nTingkatan 5:\n- Bab 1: Organisasi Tisu Tumbuhan & Pertumbuhan\n- Bab 2: Struktur & Fungsi Daun\n- Bab 3: Nutrisi dlm Tumbuhan\n- Bab 4: Pengangkutan dlm Tumbuhan\n- Bab 5: Gerak Balas dlm Tumbuhan\n- Bab 6: Pembiakan Seks dlm Tumbuhan\n- Bab 7: Penyesuaian Habitat Tumbuhan\n- Bab 8: Biodiversiti\n- Bab 9: Ekosistem",
+    insights: [
+      "Biologi Sel: Label organel dengan betul dan nyatakan peranan Mitokondria/Kloroplas secara kritis.",
+      "Enzim: Huraikan hipotesis 'mangga dan kunci' serta faktor suhu/pH terhadap struktur tapak aktif enzim.",
+      "Pembahagian Sel: Terangkan proses pindah silang (crossing over) semasa Profasa I Meiosis untuk variasi genetik.",
+      "Sistem Keimunan: Bezakan keimunan aktif semula jadi dengan keimunan pasif buatan."
+    ],
+    tips: "Gunakan istilah saintifik/biologi yang tepat (e.g. krenasi, hemolisis, plasmolisis), jelaskan perkaitan struktur dengan fungsi organ/tisu, dan tulis nama saintifik organisma mengikut konvensyen binomial (bergaris secara berasingan)."
+  }
+};
+
+function buildSystemInstruction(selectedSubjectId?: string): string {
+  const subjectId = (selectedSubjectId || "chemistry").toLowerCase();
+  const registryObj = SUBJECT_REGISTRY[subjectId] || SUBJECT_REGISTRY.chemistry;
+  
+  return `You are "${registryObj.name}", an expert KSSM SPM ${registryObj.codename} tutor (also addressed as "Cikgu").
 
 Mission:
 1. LANGUAGE: respond in the EXACT same language the student uses (Malay if they wrote Malay; English if English; mixed only if they mixed).
 2. Ground every answer in the official KSSM SPM syllabus.
-3. Equations: use LaTeX symbols ($H_2O$, $H^+$, $SO_4^{2-}$).
+3. Equations: use LaTeX symbols (e.g., $H_2O$, $v = u + at$, $E = mc^2$).
 4. IMPORTANT: When explaining an answer, you MUST prioritize the logic, keywords, and marking points defined in the provided 'Skema Pemarkahan' / 'Marking Scheme' for that specific question/topic. Do not just explain conceptually; align your steps with the skema's criteria. If the skema highlights a specific way to state a fact, you must use that phrasing (e.g. if the skema requires "frequency of effective collisions", do not accept "frequency of collisions"). Flag ⚠ common errors proactively as noted in the skema.
-5. VISUAL AIDS: for electrolysis / titration / atomic structure / apparatus diagrams, embed an SVG inside a markdown block with language "svg":
+5. VISUAL AIDS: for electrolysis / titration / atomic structure / ray diagrams / electrical circuits / cellular structures, embed an SVG inside a markdown block with language "svg":
    \`\`\`svg
    <svg viewBox="0 0 100 100">...</svg>
    \`\`\`
@@ -170,26 +255,20 @@ EXAM MODE (Paper 2):
 - Use SPM command words: Nyatakan, Terangkan, Lukis, Hitungkan, Bandingkan, Huraikan.
 - Don't give the answer until the student attempts it.
 
-NEURAL INSIGHT (for collective learning):
-- If you detect a recurring student pitfall worth sharing, prefix the insight line with [NEURAL_INSIGHT] (TopicName) <insight>.
-- These are pulled into a shared insights feed.
-
-STUDENT MASTERY SYSTEM:
-- You must bump chapter mastery levels based on student learning performance and correct answers.
-- When a student answers a core concept question, quiz, or exercise correctly, or demonstrates clear understanding of a topic, append this marker on a new line: [MASTERY] <topicId> +10 (or +15, +20 for very hard questions).
-- Valid topicIds are: f4-c2, f4-c3, f4-c4, f4-c5, f4-c6, f4-c7, f5-c1, f5-c2, f5-c3, f5-c4, f5-c5.
-- If they make a crucial error or answer incorrectly, you can optionally subtract points by writing: [MASTERY] <topicId> -5.
-- Always output this marker silently on its own line. Do not explain the marker to the student.
+STUDENT MASTERY SYSTEM & AGENTIC ACTIONS:
+- You have access to real educational tool calls: 'update_student_mastery_level' and 'record_learning_pitfall'.
+- Use 'update_student_mastery_level' when the student answers correctly, demonstrates master understanding (+10 to +20) or repetitive basic error (-5 to -10).
+- Use 'record_learning_pitfall' when you spot a concrete misconception or mistake the student made in their understanding.
+- When calling tools, explain context and continue explaining or responding to the user naturally.
 
 KSSM SYLLABUS:
-- T4: (1) Pengenalan kpd Kimia · (2) Jirim & Struktur Atom · (3) Konsep Mol, Formula & Persamaan · (4) Jadual Berkala · (5) Ikatan Kimia · (6) Asid, Bes & Garam · (7) Kadar Tindak Balas · (8) Bahan Buatan dlm Industri
-- T5: (1) Keseimbangan Redoks · (2) Sebatian Karbon · (3) Termokimia · (4) Polimer · (5) Kimia Pengguna & Industri
+${registryObj.syllabusSummary}
 
 GLOBAL INSIGHTS:
-- Rate of Reaction: students often miss "frequency of EFFECTIVE collision".
-- Thermochemistry: answers MUST include signs (+/-) and units (kJ mol⁻¹).
-- Redox: AN OX + RED CAT rule is essential.
-- Salt preparation: apply Soluble / Insoluble salt rules.
+${registryObj.insights.map(i => `- ${i}`).join("\n")}
+
+TUTOR SPECIFIC TIPS:
+${registryObj.tips}
 
 SPM MARKING SCHEME GUIDELINES:
 ${MARKING_SCHEME_TIPS.map(t => `Topic: ${t.topic}\nKeywords: ${t.requiredKeywords.join(", ")}\nLogic: ${t.markingSchemeLogic}`).join("\n\n")}
@@ -199,6 +278,9 @@ When a student's question matches a topic below, prioritise these exact marking 
 Always highlight ⚠ common errors when relevant.
 
 ${formatAnswersForPrompt()}`;
+}
+
+const STATIC_INSTRUCTION = buildSystemInstruction("chemistry");
 
 const TELEGRAM_TAIL = `
 TELEGRAM:
@@ -220,15 +302,16 @@ function buildDynamicContext(args: {
   userMessage?: string;
   platform?: "web" | "telegram";
   customExams?: any[];
+  selectedSubjectId?: string;
 }): string {
-  const { memory, selectedTopicId, userMessage, platform, customExams } = args;
+  const { memory, selectedTopicId, userMessage, platform, customExams, selectedSubjectId } = args;
 
   const memBits: string[] = [];
   if (memory?.weakTopics?.length) memBits.push(`Student's weak topics: ${memory.weakTopics.join(", ")}`);
   if (memory?.identifiedMistakes?.length) memBits.push(`Past mistakes: ${memory.identifiedMistakes.slice(-5).join("; ")}`);
   if (memory?.examPapersAnalysis?.length) memBits.push(`Recent exam paper notes:\n${memory.examPapersAnalysis.slice(-3).join("\n")}`);
 
-  const hit = ragMatch(userMessage, selectedTopicId);
+  const hit = ragMatch(userMessage, selectedTopicId, selectedSubjectId);
   const ragBlock = hit
     ? `Most-relevant chapter for this turn — ${hit.title}:\n${hit.context}\nKey points:\n- ${hit.keyPoints.join("\n- ")}`
     : selectedTopicId
@@ -645,10 +728,11 @@ Return ONLY a valid raw JSON array. No markdown fences. No explanation.`
 
   // AI-powered custom notes/knowledge analysis/ingest
   app.post("/api/admin/knowledge/analyse", async (req, res) => {
-    const { email, noteText, assets } = req.body as {
+    const { email, noteText, assets, subjectId } = req.body as {
       email: string;
       noteText?: string;
       assets?: { mimeType: string; data: string }[];
+      subjectId?: string;
     };
     if (!email || !isAdmin(email)) {
       return res.status(403).json({ error: "Unauthorized" });
@@ -666,25 +750,30 @@ Return ONLY a valid raw JSON array. No markdown fences. No explanation.`
         }
       }
 
-      const allowedTopicsPrompt = SYLLABUS_TOPICS.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
+      // Determine subject name and topics to prevent cross-subject hallucination
+      const subId = (subjectId || "chemistry").toLowerCase();
+      const subjectObj = SUBJECTS.find(s => s.id === subId) || SUBJECTS[0];
+      const targetTopics = subjectObj ? subjectObj.topics : ALL_TOPICS;
+      const allowedTopicsPrompt = targetTopics.map(t => `- "${t.id}": ${t.title} (${t.description})`).join("\n");
+      const codename = subjectObj ? subjectObj.codename : "Kimia, Fizik, dan Biologi";
 
       parts.push({
-        text: `You are Cikgu Kimia, an expert SPM Chemistry analyzer.
-Your task is to ingest and analyze an uploaded SPM Chemistry note page, textbook photo, or study materials, then output a JSON object containing carefully structured topic concept information, an overview, and main detailed takeaways/keypoints.
+        text: `You are Cikgu AI, an expert SPM ${codename} textbook and note analyzer.
+Your task is to ingest and analyze an uploaded SPM note page, textbook photo, or study materials for the subject ${codename}, then output a JSON object containing carefully structured topic concept information, an overview, and main detailed takeaways/keypoints.
 
 Analyze the notes/study materials and output EXACTLY a JSON object with this schema:
 {
-  "topicId": "Must be one of the specified topic keys if it matches, OR a sensible lowercased slug for custom/new notes (e.g., f5-c4 or tips-kbat)",
-  "title": "A short, descriptive Malaysian-style concept or topic title (e.g., Proses Sentuh, Sifat Kimia Garam)",
-  "context": "A detailed conceptual context or description in Malay explaining principles, general theories, IUPAC rules, or chemical equations. Use LaTeX $...$ for chemical symbols (e.g. $H_2SO_4$, $Na^+$) and equations.",
+  "topicId": "Must be one of the specified topic keys if it matches (e.g., f4-c3 for chemistry, f4-p2 for physics, f4-b2 for biology), OR a sensible lowercased slug for custom/new notes (e.g., f4-p1-formula, tips-kbat)",
+  "title": "A short, descriptive Malaysian-style concept or topic title (e.g., Hukum Kegravitian Newton, Fungsi Mitokondria, Sifat Kimia Garam)",
+  "context": "A detailed conceptual context or description in Malay explaining principles, general theories, KSSM syllabus definitions, IUPAC rules, or equations. Use LaTeX $...$ for mathematical/chemical symbols (e.g. $v = u + at$, $H_2SO_4$, $Na^+$) and equations.",
   "keyPoints": [
-    "A clean, complete key point or notation that the student should remember for exams (e.g. Mangkin yang digunakan ialah vanadium(V) oksida pada suhu $450^\\circ$C). Use LaTeX where equations/formulas are present.",
-    "Another distinct exam requirement, warning, color change, ionic equation, or observation.",
+    "A clean, complete key point or notation that the student should remember for exams (e.g. Suhu tidak berubah semasa takat lebur kerana haba digunakan untuk mengatasi daya tarikan zarah). Use LaTeX where equations/formulas are present.",
+    "Another distinct exam requirement, warning, formula application, definition of physical quantity, or observation.",
     "Add more high-quality points (aim for 2 to 5 standard-aligned key points depending on note depth)."
   ]
 }
 
-Here are the allowed syllabus topic IDs and their titles:
+Here are the allowed syllabus topic IDs and their titles for the subjek ${codename}:
 ${allowedTopicsPrompt}
 
 Input text from admin (if any):
@@ -759,12 +848,13 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
 
   // ─── streaming chat ─────────────────────────────────────────────────────
   app.post("/api/chat", async (req, res) => {
-    const { message, assets, memory, history, selectedTopicId } = req.body as {
+    const { message, assets, memory, history, selectedTopicId, selectedSubjectId } = req.body as {
       message: string;
       assets?: { mimeType: string; data: string }[];
       memory?: any;
       history?: any[];
       selectedTopicId?: string;
+      selectedSubjectId?: string;
     };
 
     try {
@@ -782,14 +872,15 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
         console.error("Failed to load custom exams for chat:", e);
       }
 
-      const dynamicCtx = buildDynamicContext({ memory, selectedTopicId, userMessage: message, platform: "web", customExams });
-      const fullSystemInstruction = STATIC_INSTRUCTION + "\n\n" + dynamicCtx;
+      const activeSubjectObj = SUBJECT_REGISTRY[selectedSubjectId || "chemistry"] || SUBJECT_REGISTRY.chemistry;
+      const dynamicCtx = buildDynamicContext({ memory, selectedTopicId, userMessage: message, platform: "web", customExams, selectedSubjectId });
+      const fullSystemInstruction = buildSystemInstruction(selectedSubjectId) + "\n\n" + dynamicCtx;
 
       const userParts: any[] = [];
       if (assets && assets.length > 0) {
         for (const a of assets) userParts.push({ inlineData: { mimeType: a.mimeType, data: a.data } });
       }
-      userParts.push({ text: message || "Sila bincangkan topik ini berkaitan Kimia SPM." });
+      userParts.push({ text: message || `Sila bincangkan topik ini berkaitan ${activeSubjectObj.codename} SPM.` });
 
       // Clean history for Gemini: must start with 'user' and alternate roles
       let lastRole = "";
@@ -806,9 +897,137 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
         { role: "user", parts: userParts }
       ];
 
-      const streamResponse = await retryGeminiCall(() => getAIClient().models.generateContentStream({
+      // Define agent/teacher tools for background data updates
+      const declaredTools = [
+        {
+          functionDeclarations: [
+            {
+              name: "update_student_mastery_level",
+              description: "Updates student progress mastery level (+10 to +20 for correct answers or shown mastery, -5 to -10 for consecutive mistakes). Only invoke this tool when you detect significant changes in learning status.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  topicId: { type: "STRING", description: "The KSSM topic ID (e.g. f4-c2, f4-p1, f5-b2)." },
+                  delta: { type: "NUMBER", description: "The level increment or decrement relative to current state." },
+                  reason: { type: "STRING", description: "Reason for updating mastery." }
+                },
+                required: ["topicId", "delta", "reason"]
+              }
+            },
+            {
+              name: "record_learning_pitfall",
+              description: "Records a specific learning weakness, mistake or misconception made by the student.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  topicId: { type: "STRING", description: "The topic ID (e.g. f4-c2, f4-p1, f4-b2)." },
+                  pitfallDescription: { type: "STRING", description: "A concise summary of the student's mistake or misconception." }
+                },
+                required: ["topicId", "pitfallDescription"]
+              }
+            }
+          ]
+        }
+      ];
+
+      let activeContents = [...contents];
+      let maxToolLoops = 2;
+      const aiClient = getAIClient();
+
+      while (maxToolLoops > 0) {
+        maxToolLoops--;
+
+        // Run non-streaming call to check if tools are invoked
+        const genResponse = await retryGeminiCall(() => aiClient.models.generateContent({
+          model: MODEL_CHAT,
+          contents: activeContents,
+          config: {
+            systemInstruction: fullSystemInstruction,
+            temperature: 0.7,
+            tools: declaredTools
+          }
+        } as any));
+
+        const candidate = genResponse.candidates?.[0];
+        const calls = candidate?.content?.parts?.filter(p => p.functionCall);
+
+        if (calls && calls.length > 0) {
+          console.log(`[AGENT_LOOP] Intercepted ${calls.length} function calls from Gemini.`);
+          const toolResponses: any[] = [];
+
+          for (const part of calls) {
+            const call = part.functionCall;
+            if (!call) continue;
+            console.log(`[AGENT_LOOP] Invoking Tool: ${call.name}`, call.args);
+
+            let result = { success: true, message: "Tool executed successfully." };
+
+            try {
+              if (call.name === "update_student_mastery_level") {
+                const args = call.args as { topicId: string; delta: number; reason: string };
+                if (memory?.uid && args.topicId) {
+                  const userDocRef = doc(db, `users/${memory.uid}`);
+                  const userSnap = await getDoc(userDocRef);
+                  const currentMastery = userSnap.exists() ? (userSnap.data().mastery || {}) : {};
+                  const oldVal = currentMastery[args.topicId] || 0;
+                  const newVal = Math.max(0, Math.min(100, oldVal + (args.delta || 0)));
+                  currentMastery[args.topicId] = newVal;
+
+                  await setDoc(userDocRef, { mastery: currentMastery }, { merge: true });
+                  console.log(`[AGENT_LOOP] Updated mastery for user ${memory.uid}: ${args.topicId} -> ${newVal}`);
+                  result = { success: true, message: `Mastery level for ${args.topicId} updated to ${newVal}.` };
+                } else {
+                  result = { success: false, message: "No active student uid or topicId specified." };
+                }
+              } else if (call.name === "record_learning_pitfall") {
+                const args = call.args as { topicId: string; pitfallDescription: string };
+                if (memory?.uid && args.pitfallDescription) {
+                  const userDocRef = doc(db, `users/${memory.uid}`);
+                  const userSnap = await getDoc(userDocRef);
+                  const currentMistakes = userSnap.exists() ? (userSnap.data().identifiedMistakes || []) : [];
+                  if (!currentMistakes.includes(args.pitfallDescription)) {
+                    currentMistakes.push(`${args.topicId || "general"}: ${args.pitfallDescription}`);
+                    await setDoc(userDocRef, { identifiedMistakes: currentMistakes }, { merge: true });
+                  }
+                  console.log(`[AGENT_LOOP] Recorded pitfall for user ${memory.uid}: ${args.pitfallDescription}`);
+                  result = { success: true, message: `Recorded pitfall successfully.` };
+                } else {
+                  result = { success: false, message: "No active student uid or description specified." };
+                }
+              }
+            } catch (err: any) {
+              console.error(`[AGENT_LOOP] Error executing tool ${call.name}:`, err);
+              result = { success: false, message: `Error details: ${err.message || err}` };
+            }
+
+            toolResponses.push({
+              functionResponse: {
+                name: call.name,
+                response: result
+              }
+            });
+          }
+
+          // Push the functionCalls & functionResponses to conversation context for subsequent generation
+          activeContents.push({
+            role: "model",
+            parts: calls
+          });
+          activeContents.push({
+            role: "user",
+            parts: toolResponses
+          });
+
+        } else {
+          // No tools called, or generation completed without tools
+          break;
+        }
+      }
+
+      // Stream the final conversational tutoring chunk by chunk
+      const streamResponse = await retryGeminiCall(() => aiClient.models.generateContentStream({
         model: MODEL_CHAT,
-        contents,
+        contents: activeContents,
         config: {
           systemInstruction: fullSystemInstruction,
           temperature: 0.7
