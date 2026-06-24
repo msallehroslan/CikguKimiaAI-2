@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Trophy, Flame, MessageCircle, AlertCircle, BookOpen, Camera } from "lucide-react";
+import { ArrowRight, ChevronRight, Trophy, Flame, MessageCircle, AlertCircle, BookOpen, Camera } from "lucide-react";
 import { useFirebase } from "../lib/FirebaseProvider";
 import { memoryService, StudentMemory, DAILY_CAP, DAILY_CAP_PREMIUM, isAdmin } from "../services/memoryService";
 import { ALL_TOPICS, SUBJECTS, Topic } from "../constants";
@@ -749,20 +749,29 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
             const completedCount = Object.keys(mastery).filter(tid => sub.topics.some(t => t.id === tid)).length;
             const percent = subjectTopicsCount ? Math.round((completedCount / subjectTopicsCount) * 100) : 0;
             return (
-              <button
+              <motion.button
                 key={sub.id}
                 onClick={() => onSubjectSelect(sub.id)}
-                className={`p-5 rounded-2xl border text-left transition relative overflow-hidden group ${
+                whileHover={!isActive ? { y: -3, scale: 1.01 } : { scale: 1.01 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                className={`p-5 rounded-2xl border text-left relative overflow-hidden group ${
                   isActive
                     ? "bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/10"
-                    : "bg-white border-slate-200 text-slate-800 hover:border-slate-300"
+                    : "bg-white border-slate-200 text-slate-800 hover:border-slate-300 hover:shadow-md"
                 }`}
               >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs mb-3 ${
-                  isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700"
-                }`}>
+                {isActive && (
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+                )}
+                <motion.div
+                  whileHover={{ rotate: 5, scale: 1.05 }}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs mb-3 transition-colors ${
+                    isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700 group-hover:bg-slate-200"
+                  }`}
+                >
                   {sub.logoShort}
-                </div>
+                </motion.div>
                 <div className="font-display font-bold text-base leading-snug">{sub.name}</div>
                 <div className={`text-xs mt-1 leading-snug ${isActive ? "text-slate-400" : "text-slate-500"}`}>
                   {sub.tagline}
@@ -771,10 +780,15 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                   <span>Silibus KSSM</span>
                   <span>{completedCount}/{subjectTopicsCount} bab</span>
                 </div>
-                <div className="mt-2 w-full h-1 bg-white/10 rounded-full overflow-hidden">
-                  <div className={`h-full ${isActive ? "bg-amber-400" : "bg-slate-900"}`} style={{ width: `${percent}%` }} />
+                <div className="mt-2 w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <motion.div
+                    className={`h-full rounded-full ${isActive ? "bg-amber-400" : "bg-slate-300"}`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percent}%` }}
+                    transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                  />
                 </div>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -855,8 +869,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                 {suggested.topic.title}
               </div>
               <p className="text-slate-400 text-sm mb-5">{suggested.reason}</p>
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white text-slate-900 rounded-full text-sm font-semibold group-hover:gap-3 transition-all">
-                Mula belajar <ArrowRight className="w-4 h-4" />
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white text-slate-900 rounded-full text-sm font-semibold group-hover:gap-3 group-hover:shadow-lg transition-all">
+                Mula belajar <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </div>
             </div>
           </motion.button>
@@ -879,17 +893,24 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                   );
                   const pct = topic ? mastery[topic.id] ?? 30 : 30;
                   return (
-                    <button
+                    <motion.button
                       key={i}
+                      whileHover={{ x: 3 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
                       onClick={() => topic && onPickTopic(topic)}
                       className="w-full flex items-center justify-between gap-3 group hover:bg-slate-50 -mx-2 px-2 py-2 rounded-lg transition"
                     >
                       <span className="text-sm font-medium text-slate-800 flex-shrink-0 text-left">{topic?.title ?? w}</span>
                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${theme.progressBar}`} style={{ width: `${pct}%` }} />
+                        <motion.div
+                          className={`h-full rounded-full ${theme.progressBar}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pct}%` }}
+                          transition={{ duration: 0.6, ease: "easeOut", delay: 0.08 * i }}
+                        />
                       </div>
                       <span className="font-mono text-xs text-slate-500 w-12 text-right">{pct}%</span>
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>
@@ -907,24 +928,29 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
               </h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {filteredRecent.map(r => (
-                <button
+              {filteredRecent.map((r, idx) => (
+                <motion.button
                   key={r.topicId}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  whileHover={{ y: -2 }}
                   onClick={() => r.topic && onPickTopic(r.topic)}
-                  className={`text-left bg-white border border-slate-200 rounded-xl p-4 transition group ${theme.accentHoverBorder}`}
+                  className={`text-left bg-white border border-slate-200 rounded-xl p-4 transition-all group hover:shadow-md ${theme.accentHoverBorder}`}
                 >
                   <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-widest uppercase mb-1.5">
                     {r.at.toLocaleDateString("ms-MY", { day: "numeric", month: "short" })}
                   </div>
-                  <div className="font-display text-lg text-slate-900 leading-tight mb-1.5">
-                    {r.topic?.title ?? r.topicId.replace(/-/g, " ")}
+                  <div className="font-display text-lg text-slate-900 leading-tight mb-1.5 flex items-center justify-between gap-2">
+                    <span className="flex-1 leading-tight">{r.topic?.title ?? r.topicId.replace(/-/g, " ")}</span>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                   </div>
                   <div className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                     {r.lastText && (r.lastText.trim().startsWith("<") || r.lastText.toLowerCase().includes("<html") || r.lastText.toLowerCase().includes("<!doctype"))
                       ? "Sesi bimbingan interaktif dan latihan soalan."
                       : r.lastText.replace(/[*#`_>]/g, "").slice(0, 120)}
                   </div>
-                </button>
+                </motion.button>
               ))}
             </div>
           </section>
@@ -1906,13 +1932,17 @@ function StatCard({
   label: string; value: string; sub: string; icon: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-xl p-4 ${className}`}>
+    <motion.div
+      whileHover={{ y: -2 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className={`group bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow ${className}`}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="text-[10px] font-mono font-semibold text-slate-500 tracking-widest uppercase">{label}</div>
-        <div className="text-slate-400">{icon}</div>
+        <div className="text-slate-300 group-hover:text-slate-500 transition-colors">{icon}</div>
       </div>
       <div className="font-display text-3xl text-slate-900 leading-none">{value}</div>
       <div className="text-[11px] text-slate-500 mt-1.5">{sub}</div>
-    </div>
+    </motion.div>
   );
 }
