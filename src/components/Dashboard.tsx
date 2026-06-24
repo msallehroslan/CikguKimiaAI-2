@@ -273,7 +273,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
         body: JSON.stringify({
           email: user.email,
           questionText: ingestDraftText,
-          assets
+          assets,
+          subjectId: selectedSubjectId
         })
       });
  
@@ -717,16 +718,16 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  <span className={`text-[10px] w-5 h-5 rounded flex items-center justify-center font-mono font-bold leading-none ${
-                    isActive
-                      ? {
-                          chemistry: "bg-amber-100 text-amber-700",
-                          physics: "bg-sky-100 text-sky-700",
-                          biology: "bg-emerald-100 text-emerald-700",
-                        }[sub.id]
-                      : "bg-slate-200/60 text-slate-500"
-                  }`}>
-                    {sub.logoShort}
+                  <span className="w-5 h-5 rounded overflow-hidden flex-shrink-0 bg-slate-200 flex items-center justify-center">
+                    <img
+                      src={sub.avatar}
+                      alt={sub.codename}
+                      className="w-full h-full object-cover object-top"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                        e.currentTarget.parentElement!.innerHTML = `<span class="text-[9px] font-bold">${sub.logoShort}</span>`;
+                      }}
+                    />
                   </span>
                   <span>{sub.codename}</span>
                   {isActive && (
@@ -758,10 +759,18 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                     : "bg-white border-slate-200 text-slate-800 hover:border-slate-300"
                 }`}
               >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs mb-3 ${
-                  isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700"
+                <div className={`w-12 h-12 rounded-xl overflow-hidden mb-3 shadow-sm flex items-center justify-center font-bold text-xs ring-2 ${
+                  isActive ? "ring-white/10 bg-slate-800" : "ring-slate-100 bg-slate-100"
                 }`}>
-                  {sub.logoShort}
+                  <img
+                    src={sub.avatar}
+                    alt={sub.name}
+                    className="w-full h-full object-cover object-top"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement!.innerHTML = `<span class="text-sm font-bold text-slate-700">${sub.logoShort}</span>`;
+                    }}
+                  />
                 </div>
                 <div className="font-display font-bold text-base leading-snug">{sub.name}</div>
                 <div className={`text-xs mt-1 leading-snug ${isActive ? "text-slate-400" : "text-slate-500"}`}>

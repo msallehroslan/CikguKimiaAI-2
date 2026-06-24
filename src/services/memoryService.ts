@@ -52,6 +52,14 @@ export interface StudentMemory {
   isSubscriber?: boolean;
   subscriptionPlan?: string;
 
+  // Reminders preferences
+  reminderPrefs?: {
+    channel: "off" | "telegram" | "in-app";
+    preferredHour: number;
+    telegramChatId?: number | null;
+    lastSent?: number | null;
+  };
+
   // legacy — kept for back-compat, no longer used
   neuralEnergy?: number;
   lastEnergyRefill?: number;
@@ -74,7 +82,6 @@ const MYT_OFFSET_MIN = 8 * 60;          // UTC+8
 
 const ADMIN_EMAILS = [
   "msallehroslan@gmail.com",
-  "msallehroslan@gmail.form",
   "salleh@ioteratechnologies.com"
 ];
 

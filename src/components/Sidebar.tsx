@@ -125,8 +125,16 @@ export function Sidebar({
           onClick={() => { onHome?.(); setIsOpen(false); }}
           className="px-6 pt-6 pb-5 border-b border-white/5 text-left flex items-center gap-3 hover:bg-white/5 transition group"
         >
-          <div className="w-11 h-11 rounded-xl overflow-hidden ring-2 ring-white/10 bg-slate-800 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm">
-            {activeSubjectObj.logoShort}
+          <div className="w-11 h-11 rounded-xl overflow-hidden ring-2 ring-white/10 bg-slate-800 flex-shrink-0">
+            <img
+              src={activeSubjectObj.avatar}
+              alt={activeSubjectObj.name}
+              className="w-full h-full object-cover object-top"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+                e.currentTarget.parentElement!.innerHTML = `<div class="flex items-center justify-center w-full h-full bg-slate-800 text-white text-sm font-bold">${activeSubjectObj.logoShort}</div>`;
+              }}
+            />
           </div>
           <div>
             <div className="font-display text-xl text-white leading-none">{activeSubjectObj.name}</div>
