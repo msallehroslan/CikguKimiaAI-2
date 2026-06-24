@@ -83,7 +83,6 @@ function parseGeminiError(error: any, defaultMsg: string): string {
 
 const ADMIN_EMAILS = [
   "msallehroslan@gmail.com",
-  "msallehroslan@gmail.form",
   "salleh@ioteratechnologies.com"
 ];
 
@@ -735,6 +734,21 @@ async function startServer() {
     if (!email || !isAdmin(email)) {
       return res.status(403).json({ error: "Unauthorized" });
     }
+    const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+    const MAX_ASSET_B64 = Math.ceil((10 * 1024 * 1024) / 3) * 4; // ~10 MB raw → base64
+    if (assets !== undefined) {
+      if (!Array.isArray(assets) || assets.length > 5) {
+        return res.status(400).json({ error: "assets must be an array of at most 5 files." });
+      }
+      for (const a of assets) {
+        if (!ALLOWED_MIME.includes(a.mimeType)) {
+          return res.status(400).json({ error: `File type not allowed: ${a.mimeType}` });
+        }
+        if (typeof a.data !== "string" || a.data.length > MAX_ASSET_B64) {
+          return res.status(400).json({ error: "A file exceeds the 10 MB size limit." });
+        }
+      }
+    }
     try {
       const parts: any[] = [];
       const hasDualPdf = assets && assets.length >= 2;
@@ -945,6 +959,23 @@ Analyze thoroughly and return ONLY a valid raw JSON object. Do not wrap it in ma
       selectedTopicId?: string;
       selectedSubjectId?: string;
     };
+
+    if (!message || typeof message !== "string" || message.trim().length === 0) {
+      return res.status(400).json({ error: "Message is required." });
+    }
+    if (selectedSubjectId) {
+      const validSubjectIds = SUBJECTS.map(s => s.id);
+      if (!validSubjectIds.includes(selectedSubjectId)) {
+        return res.status(400).json({ error: "Invalid subjectId." });
+      }
+    }
+    if (selectedTopicId) {
+      const validTopicIds = ALL_TOPICS.map(t => t.id);
+      const isDynamic = selectedTopicId.includes("-quiz") || selectedTopicId.includes("-exam");
+      if (!isDynamic && !validTopicIds.includes(selectedTopicId)) {
+        return res.status(400).json({ error: "Invalid topicId." });
+      }
+    }
 
     try {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");

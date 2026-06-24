@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Send, User, X, ImagePlus, FlaskConical, RefreshCw, ClipboardCheck,
@@ -1414,7 +1415,7 @@ function StreamingMarkdown({ text }: { text: string }) {
                 <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-widest uppercase mb-3">Rajah</div>
                 <div
                   className="w-full flex justify-center"
-                  dangerouslySetInnerHTML={{ __html: String(children).replace(/\n$/, "") }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(String(children).replace(/\n$/, ""), { USE_PROFILES: { svg: true } }) }}
                 />
               </div>
             );

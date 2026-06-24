@@ -82,7 +82,6 @@ const MYT_OFFSET_MIN = 8 * 60;          // UTC+8
 
 const ADMIN_EMAILS = [
   "msallehroslan@gmail.com",
-  "msallehroslan@gmail.form",
   "salleh@ioteratechnologies.com"
 ];
 
