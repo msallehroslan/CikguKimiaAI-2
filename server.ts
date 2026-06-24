@@ -35,9 +35,9 @@ const WEB_APP_URL =
   "https://ais-pre-plschybuw4bxx5jgbdpsgu-244423792092.asia-southeast1.run.app";
 
 // Models — tunable via env so you can roll back without code changes
-const MODEL_CHAT     = process.env.GEMINI_MODEL_CHAT     || "gemini-3.5-flash";
-const MODEL_ANALYSER = process.env.GEMINI_MODEL_ANALYSER || "gemini-3.5-flash"; 
-const MODEL_SUMMARY  = process.env.GEMINI_MODEL_SUMMARY  || "gemini-3.5-flash";
+const MODEL_CHAT     = process.env.GEMINI_MODEL_CHAT     || "gemini-2.5-flash";
+const MODEL_ANALYSER = process.env.GEMINI_MODEL_ANALYSER || "gemini-2.5-flash";
+const MODEL_SUMMARY  = process.env.GEMINI_MODEL_SUMMARY  || "gemini-2.5-flash";
 
 const menuKeyboard = Markup.inlineKeyboard([
   Markup.button.url("Buka Cikgu Kimia App", WEB_APP_URL),
@@ -287,10 +287,6 @@ TELEGRAM:
 - Diagrams will be hidden — use a short ascii/emoji sketch as fallback.
 - Use Markdown **bold** / *italic*, not HTML tags.
 - Make replies punchy, structured with bullets.`;
-
-const FULL_RAG_TEXT = SYLLABUS_KNOWLEDGE_BASE
-  .map(t => `${t.title}\n${t.context}\nKey Facts:\n- ${t.keyPoints.join("\n- ")}`)
-  .join("\n\n---\n\n");
 
 /**
  * Build the small per-request *dynamic* context.
