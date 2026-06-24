@@ -717,16 +717,12 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  <span className={`text-[10px] w-5 h-5 rounded flex items-center justify-center font-mono font-bold leading-none ${
-                    isActive
-                      ? {
-                          chemistry: "bg-amber-100 text-amber-700",
-                          physics: "bg-sky-100 text-sky-700",
-                          biology: "bg-emerald-100 text-emerald-700",
-                        }[sub.id]
-                      : "bg-slate-200/60 text-slate-500"
-                  }`}>
-                    {sub.logoShort}
+                  <span className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
+                    <img
+                      src={sub.avatar}
+                      alt={sub.codename}
+                      className="w-full h-full object-cover object-top"
+                    />
                   </span>
                   <span>{sub.codename}</span>
                   {isActive && (
@@ -765,12 +761,14 @@ export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSu
                   <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
                 )}
                 <motion.div
-                  whileHover={{ rotate: 5, scale: 1.05 }}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs mb-3 transition-colors ${
-                    isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700 group-hover:bg-slate-200"
-                  }`}
+                  whileHover={{ scale: 1.08 }}
+                  className="w-14 h-14 rounded-2xl overflow-hidden mb-3 shadow-md ring-2 ring-white/20"
                 >
-                  {sub.logoShort}
+                  <img
+                    src={sub.avatar}
+                    alt={sub.name}
+                    className="w-full h-full object-cover object-top"
+                  />
                 </motion.div>
                 <div className="font-display font-bold text-base leading-snug">{sub.name}</div>
                 <div className={`text-xs mt-1 leading-snug ${isActive ? "text-slate-400" : "text-slate-500"}`}>

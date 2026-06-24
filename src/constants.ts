@@ -17,6 +17,7 @@ export interface Subject {
   codename: string;
   tagline: string;
   logoShort: string;
+  avatar: string;
   colorClass: string;
   topics: Topic[];
 }
@@ -302,6 +303,7 @@ export const SUBJECTS: Subject[] = [
     codename: "Kimia",
     tagline: "Kombinasi teori dan persamaan kimia yang tenang, berpandukan skema SPM.",
     logoShort: "CK",
+    avatar: "/avatar-chemistry.webp",
     colorClass: "from-brand-navy to-brand-accent",
     topics: CHEMISTRY_TOPICS,
   },
@@ -311,6 +313,7 @@ export const SUBJECTS: Subject[] = [
     codename: "Fizik",
     tagline: "Formulas, daya, gerakan, dan hukum fizik dikuasai dengan eksperimentasi visual.",
     logoShort: "CF",
+    avatar: "/avatar-physics.webp",
     colorClass: "from-sky-900 to-sky-500",
     topics: PHYSICS_TOPICS,
   },
@@ -320,6 +323,7 @@ export const SUBJECTS: Subject[] = [
     codename: "Biologi",
     tagline: "Sel hidup, ekosistem tumbuhan, dan pemahaman anatomi KSSM mendalam.",
     logoShort: "CB",
+    avatar: "/avatar-biology.webp",
     colorClass: "from-emerald-950 to-emerald-600",
     topics: BIOLOGY_TOPICS,
   },
