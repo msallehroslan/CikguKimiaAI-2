@@ -5,7 +5,10 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 import { initializeFirestore } from 'firebase/firestore';
 
-const app = initializeApp(firebaseConfig);
+const app = initializeApp({
+  ...firebaseConfig,
+  authDomain: "tutor.ioteratechnologies.com",
+});
 
 // Use the specific firestoreDatabaseId from the configuration
 export const db = initializeFirestore(app, {
