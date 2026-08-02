@@ -35,7 +35,8 @@ export class GeminiService {
     assets: Asset[] = [],
     onChunk: (text: string) => void,
     history: { role: string; parts: { text: string }[] }[] = [],
-    selectedTopicId?: string
+    selectedTopicId?: string,
+    selectedSubjectId?: string
   ): Promise<void> {
     try {
       const response = await fetch("/api/chat", {
@@ -47,6 +48,7 @@ export class GeminiService {
           memory: this.memory,
           history,
           selectedTopicId,
+          selectedSubjectId,
         }),
       });
 

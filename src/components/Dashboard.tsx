@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { ArrowRight, Trophy, Flame, MessageCircle, AlertCircle, BookOpen, Camera } from "lucide-react";
 import { useFirebase } from "../lib/FirebaseProvider";
 import { memoryService, StudentMemory, DAILY_CAP, DAILY_CAP_PREMIUM, isAdmin } from "../services/memoryService";
-import { SYLLABUS_TOPICS, Topic } from "../constants";
+import { ALL_TOPICS, SUBJECTS, Topic } from "../constants";
 import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { navigate } from "../lib/router";
@@ -14,6 +14,8 @@ import rehypeKatex from "rehype-katex";
 interface DashboardProps {
   onPickTopic: (topic: Topic) => void;
   onUpgradeClick?: () => void;
+  selectedSubjectId: string;
+  onSubjectSelect: (subjectId: string) => void;
 }
 
 interface RecentThread {
@@ -28,7 +30,7 @@ interface RecentThread {
  * student one obvious next step. Replaces the v1 TopicExplorer "Neural Feed"
  * grid which showed cosmetic content over real personalised guidance.
  */
-export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
+export function Dashboard({ onPickTopic, onUpgradeClick, selectedSubjectId, onSubjectSelect }: DashboardProps) {
   const { user, isSubscriber, subscriptionPlan } = useFirebase();
   const isEffectiveSubscriber = isSubscriber || (user ? isAdmin(user.email) : false);
   const [memory, setMemory] = useState<StudentMemory | null>(null);
@@ -40,6 +42,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
   // Custom knowledge base states for Admin Panel
   const [customFacts, setCustomFacts] = useState<any[]>([]);
+  const [filterBySubject, setFilterBySubject] = useState(true);
+  const [filterExamsBySubject, setFilterExamsBySubject] = useState(true);
   const [loadingFacts, setLoadingFacts] = useState(false);
   const [editingFact, setEditingFact] = useState<any | null>(null);
   const [showFactForm, setShowFactForm] = useState(false);
@@ -98,7 +102,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
       loadExams();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isSubscriber]);
+  }, [user, isSubscriber, selectedSubjectId]);
 
   const loadStudents = async () => {
     if (!user || !isAdmin(user.email)) return;
@@ -269,7 +273,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
         body: JSON.stringify({
           email: user.email,
           questionText: ingestDraftText,
-          assets
+          assets,
+          subjectId: selectedSubjectId
         })
       });
  
@@ -367,7 +372,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
         body: JSON.stringify({
           email: user.email,
           noteText: ingestNoteDraft,
-          assets
+          assets,
+          subjectId: selectedSubjectId
         })
       });
 
@@ -501,7 +507,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
         const data = d.data();
         if (!data.topicId) return;
         if (seen.has(data.topicId)) return;
-        const topic = SYLLABUS_TOPICS.find(t => t.id === data.topicId);
+        const topic = ALL_TOPICS.find(t => t.id === data.topicId);
         seen.set(data.topicId, {
           topicId: data.topicId,
           topic,
@@ -534,71 +540,260 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
   const remaining = Math.max(0, DAILY_CAP - used);
   const weakTopics = memory.weakTopics ?? [];
   const mastery = memory.mastery ?? {};
-  const mostRecent = recent[0];
 
   const firstName = user?.displayName?.split(" ")[0] ?? "Pelajar";
+  const activeSubjectObj = SUBJECTS.find(s => s.id === selectedSubjectId) || SUBJECTS[0];
+
+  const isTopicInActiveSubject = (topicId: string) => {
+    if (!topicId) return false;
+    if (activeSubjectObj && activeSubjectObj.topics && activeSubjectObj.topics.some((t: any) => t.id === topicId)) {
+      return true;
+    }
+    const subId = selectedSubjectId.toLowerCase();
+    if (subId === "chemistry" && (topicId.includes("-c") || topicId.startsWith("f4-c") || topicId.startsWith("f5-c"))) return true;
+    if (subId === "physics" && (topicId.includes("-p") || topicId.startsWith("f4-p") || topicId.startsWith("f5-p"))) return true;
+    if (subId === "biology" && (topicId.includes("-b") || topicId.startsWith("f4-b") || topicId.startsWith("f5-b"))) return true;
+    return false;
+  };
+
+  const filteredCustomFacts = filterBySubject
+    ? customFacts.filter(f => isTopicInActiveSubject(f.topicId))
+    : customFacts;
+
+  const filteredCustomExams = filterExamsBySubject
+    ? customExams.filter(e => e.topicId === "general" || isTopicInActiveSubject(e.topicId))
+    : customExams;
+
+  // Filter weak topics by those belonging to the active subject
+  const filteredWeakTopics = weakTopics.filter(w => {
+    const topic = ALL_TOPICS.find(t =>
+      t.title.toLowerCase().includes(w.toLowerCase()) ||
+      w.toLowerCase().includes(t.title.toLowerCase()) ||
+      t.id === w
+    );
+    return topic && activeSubjectObj.topics.some(t => t.id === topic.id);
+  });
+
+  // Filter recent threads to only show those for the active subject
+  const filteredRecent = recent.filter(r =>
+    r.topicId.startsWith(selectedSubjectId) ||
+    activeSubjectObj.topics.some(t => t.id === r.topicId)
+  );
+  const mostRecentSubjectSpecific = filteredRecent[0];
 
   // Pick the "next step" suggestion
   const suggested: { topic: Topic; reason: string } | null = (() => {
-    // 1. If we have weak topics, prioritize explaining those
-    if (weakTopics.length > 0) {
-      const t = SYLLABUS_TOPICS.find(t =>
-        weakTopics.some(w => t.title.toLowerCase().includes(w.toLowerCase()) || w.toLowerCase().includes(t.title.toLowerCase()) || t.id === w)
+    // 1. If we have weak topics, prioritize explaining those (filtered for current subject)
+    if (filteredWeakTopics.length > 0) {
+      const t = activeSubjectObj.topics.find(t =>
+        filteredWeakTopics.some(w => t.title.toLowerCase().includes(w.toLowerCase()) || w.toLowerCase().includes(t.title.toLowerCase()) || t.id === w)
       );
       if (t) return {
         topic: t,
-        reason: "Berdasarkan sejarah anda, bab ini perlukan perhatian lebih."
+        reason: `Berdasarkan prestasi lepas anda dlm ${activeSubjectObj.codename}, bab ini perlukan latihan lanjut.`
       };
     }
-    // 2. Otherwise suggest continuing where they left off
-    if (mostRecent?.topic) {
-      const days = Math.floor((Date.now() - mostRecent.at.getTime()) / 86_400_000);
+    // 2. Otherwise suggest continuing where they left off (for this subject)
+    if (mostRecentSubjectSpecific?.topic) {
+      const days = Math.floor((Date.now() - mostRecentSubjectSpecific.at.getTime()) / 86_400_000);
       return {
-        topic: mostRecent.topic,
+        topic: mostRecentSubjectSpecific.topic,
         reason: days > 0
           ? `Sesi terakhir anda ${days} hari lepas.`
           : "Sambung sesi terakhir anda.",
       };
     }
     // 3. Fallback to Form-based starting point
-    const fallbackId = (memory as any).form === 5 ? "f5-c1" : "f4-c1";
-    const fallback = SYLLABUS_TOPICS.find(st => st.id === fallbackId);
+    let fallbackId = "f4-c2"; // default chemistry
+    if (selectedSubjectId === "physics") fallbackId = "f4-p1";
+    if (selectedSubjectId === "biology") fallbackId = "f4-b2";
+
+    if ((memory as any).form === 5) {
+      if (selectedSubjectId === "chemistry") fallbackId = "f5-c1";
+      if (selectedSubjectId === "physics") fallbackId = "f5-p1";
+      if (selectedSubjectId === "biology") fallbackId = "f5-b1";
+    }
+
+    const fallback = ALL_TOPICS.find(st => st.id === fallbackId);
     if (fallback) return {
       topic: fallback,
-      reason: "Mari mulakan pengenalan Kimia hari ini.",
+      reason: `Mari mulakan pembelajaran ${activeSubjectObj.codename} hari ini.`,
     };
 
     return null;
   })();
 
+  const theme = {
+    chemistry: {
+      accentText: "text-amber-500",
+      accentBg: "bg-amber-500",
+      accentBgSoft: "bg-amber-500/10",
+      accentBorder: "border-amber-500/20",
+      accentHoverBorder: "hover:border-amber-500/30",
+      continueBg: "bg-slate-950",
+      continueGlow: "bg-amber-500/20",
+      continueText: "text-amber-400",
+      progressBar: "bg-amber-500",
+      tabActive: "text-amber-600 bg-white",
+      tabDot: "bg-amber-500",
+    },
+    physics: {
+      accentText: "text-sky-500",
+      accentBg: "bg-sky-500",
+      accentBgSoft: "bg-sky-500/10",
+      accentBorder: "border-sky-500/20",
+      accentHoverBorder: "hover:border-sky-500/30",
+      continueBg: "bg-sky-950",
+      continueGlow: "bg-sky-500/20",
+      continueText: "text-sky-400",
+      progressBar: "bg-sky-500",
+      tabActive: "text-sky-600 bg-white",
+      tabDot: "bg-sky-500",
+    },
+    biology: {
+      accentText: "text-emerald-500",
+      accentBg: "bg-emerald-500",
+      accentBgSoft: "bg-emerald-500/10",
+      accentBorder: "border-emerald-500/20",
+      accentHoverBorder: "hover:border-emerald-500/30",
+      continueBg: "bg-emerald-950",
+      continueGlow: "bg-emerald-500/20",
+      continueText: "text-emerald-400",
+      progressBar: "bg-emerald-500",
+      tabActive: "text-emerald-600 bg-white",
+      tabDot: "bg-emerald-500",
+    }
+  }[selectedSubjectId as "chemistry" | "physics" | "biology"] || {
+    accentText: "text-sky-500",
+    accentBg: "bg-sky-500",
+    accentBgSoft: "bg-sky-500/10",
+    accentBorder: "border-sky-500/20",
+    accentHoverBorder: "hover:border-sky-500/30",
+    continueBg: "bg-slate-950",
+    continueGlow: "bg-sky-500/20",
+    continueText: "text-sky-400",
+    progressBar: "bg-sky-500",
+    tabActive: "text-sky-600 bg-white",
+    tabDot: "bg-sky-500",
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-stone-50">
       <div className="max-w-5xl mx-auto px-6 sm:px-10 py-12 sm:py-16">
 
-        {/* Greeting */}
+        {/* Dynamic Header Switcher */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-10"
+          className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-10 pb-6 border-b border-slate-200/60"
         >
-          <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-widest uppercase mb-2">
-            {new Date().toLocaleDateString("ms-MY", { weekday: "long", day: "numeric", month: "long" })}
+          <div>
+            <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-widest uppercase mb-2">
+              {new Date().toLocaleDateString("ms-MY", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+            <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-slate-900 leading-tight tracking-tight flex flex-wrap items-center gap-2">
+              <span>Salam, {firstName}.</span>
+              {streak > 0 && (
+                <span className={`inline-flex items-center gap-1 text-xs font-mono font-bold px-2.5 py-1 rounded-full ${theme.accentBgSoft} ${theme.accentText}`}>
+                  🔥 Hari ke-{streak}
+                </span>
+              )}
+            </h1>
+            <p className="text-slate-500 mt-1.5 text-sm leading-relaxed">
+              {streak === 0 ? "Mari mula hari ini." : `Teruskan momentum belajar ${activeSubjectObj.codename} anda.`}
+            </p>
           </div>
-          <h1 className="font-display text-4xl sm:text-5xl text-slate-900 leading-tight tracking-tight">
-            Salam, {firstName}.{" "}
-            {streak > 0 && <em className="text-brand-accent">Hari ke-{streak}.</em>}
-          </h1>
-          <p className="text-slate-500 mt-2.5 text-base">
-            {streak === 0 ? "Mari mula hari ini." : "Teruskan momentum belajar Kimia anda."}
-          </p>
+
+          {/* Quick Subject Switcher */}
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center self-start md:self-center select-none shadow-sm border border-slate-200/50">
+            {SUBJECTS.map((sub) => {
+              const isActive = sub.id === selectedSubjectId;
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => onSubjectSelect(sub.id)}
+                  className={`relative px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all duration-200 flex items-center gap-2 ${
+                    isActive
+                      ? `${theme.tabActive} shadow-sm border border-slate-200/10`
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <span className="w-5 h-5 rounded overflow-hidden flex-shrink-0 bg-slate-200 flex items-center justify-center">
+                    <img
+                      src={sub.avatar}
+                      alt={sub.codename}
+                      className="w-full h-full object-cover object-top"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                        e.currentTarget.parentElement!.innerHTML = `<span class="text-[9px] font-bold">${sub.logoShort}</span>`;
+                      }}
+                    />
+                  </span>
+                  <span>{sub.codename}</span>
+                  {isActive && (
+                    <motion.span
+                      layoutId="activeSubjectDot"
+                      className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${theme.tabDot}`}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </motion.div>
+
+        {/* Dynamic Subject Quick Selector Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+          {SUBJECTS.map((sub) => {
+            const isActive = sub.id === selectedSubjectId;
+            const subjectTopicsCount = sub.topics.length;
+            const completedCount = Object.keys(mastery).filter(tid => sub.topics.some(t => t.id === tid)).length;
+            const percent = subjectTopicsCount ? Math.round((completedCount / subjectTopicsCount) * 100) : 0;
+            return (
+              <button
+                key={sub.id}
+                onClick={() => onSubjectSelect(sub.id)}
+                className={`p-5 rounded-2xl border text-left transition relative overflow-hidden group ${
+                  isActive
+                    ? "bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/10"
+                    : "bg-white border-slate-200 text-slate-800 hover:border-slate-300"
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-xl overflow-hidden mb-3 shadow-sm flex items-center justify-center font-bold text-xs ring-2 ${
+                  isActive ? "ring-white/10 bg-slate-800" : "ring-slate-100 bg-slate-100"
+                }`}>
+                  <img
+                    src={sub.avatar}
+                    alt={sub.name}
+                    className="w-full h-full object-cover object-top"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement!.innerHTML = `<span class="text-sm font-bold text-slate-700">${sub.logoShort}</span>`;
+                    }}
+                  />
+                </div>
+                <div className="font-display font-bold text-base leading-snug">{sub.name}</div>
+                <div className={`text-xs mt-1 leading-snug ${isActive ? "text-slate-400" : "text-slate-500"}`}>
+                  {sub.tagline}
+                </div>
+                <div className="mt-4 flex items-center justify-between text-[10px] font-mono font-semibold uppercase opacity-80">
+                  <span>Silibus KSSM</span>
+                  <span>{completedCount}/{subjectTopicsCount} bab</span>
+                </div>
+                <div className="mt-2 w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className={`h-full ${isActive ? "bg-amber-400" : "bg-slate-900"}`} style={{ width: `${percent}%` }} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Stats row */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
           <StatCard
             label="Mesej hari ini"
             value={`${used} / ${isEffectiveSubscriber ? DAILY_CAP_PREMIUM : DAILY_CAP}`}
-            sub={isEffectiveSubscriber ? "Pakej Premium Cikgu Pro 👑" : "Pakej Percuma / Had Percubaan"}
+            sub={isEffectiveSubscriber ? "Pakej Premium Pro 👑" : "Pakej Percuma / Had Percubaan"}
             icon={<MessageCircle className="w-4 h-4" />}
           />
           <StatCard
@@ -609,9 +804,9 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
           />
           <StatCard
             label="Bab disentuh"
-            value={`${Object.keys(mastery).length} / 13`}
+            value={`${Object.keys(mastery).filter(tid => activeSubjectObj.topics.some(t => t.id === tid)).length} / ${activeSubjectObj.topics.length}`}
             sub={Object.keys(mastery).length === 0 ? "mula dengan mana-mana bab" : "teruskan"}
-            icon={<Trophy className="w-4 h-4 text-brand-accent" />}
+            icon={<Trophy className={`w-4 h-4 ${theme.accentText}`} />}
             className="col-span-2 lg:col-span-1"
           />
         </div>
@@ -651,18 +846,18 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
           </motion.div>
         )}
 
-        {/* Continue card */}
+         {/* Continue card */}
         {suggested && (
           <motion.button
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 }}
             onClick={() => onPickTopic(suggested.topic)}
-            className="w-full text-left mb-8 group relative overflow-hidden bg-brand-navy text-white rounded-2xl p-7 sm:p-9 shadow-xl hover:shadow-2xl transition-all"
+            className={`w-full text-left mb-8 group relative overflow-hidden text-white rounded-2xl p-7 sm:p-9 shadow-xl hover:shadow-2xl transition-all ${theme.continueBg}`}
           >
-            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-accent/20 blur-3xl rounded-full -translate-y-32 translate-x-20 pointer-events-none" />
+            <div className={`absolute top-0 right-0 w-64 h-64 blur-3xl rounded-full -translate-y-32 translate-x-20 pointer-events-none ${theme.continueGlow}`} />
             <div className="relative">
-              <div className="text-[10px] font-mono font-semibold text-brand-accent-soft tracking-widest uppercase mb-3">
+              <div className={`text-[10px] font-mono font-semibold tracking-widest uppercase mb-3 ${theme.continueText}`}>
                 → Teruskan
               </div>
               <div className="font-display text-3xl sm:text-4xl leading-tight mb-2">
@@ -677,7 +872,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
         )}
 
         {/* Weak topics */}
-        {weakTopics.length > 0 && (
+        {filteredWeakTopics.length > 0 && (
           <section className="mb-10">
             <div className="flex items-center gap-2 mb-4">
               <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
@@ -687,8 +882,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
               <div className="space-y-3">
-                {weakTopics.slice(0, 5).map((w, i) => {
-                  const topic = SYLLABUS_TOPICS.find(t =>
+                {filteredWeakTopics.slice(0, 5).map((w, i) => {
+                  const topic = ALL_TOPICS.find(t =>
                     t.title.toLowerCase().includes(w.toLowerCase()) || w.toLowerCase().includes(t.title.toLowerCase())
                   );
                   const pct = topic ? mastery[topic.id] ?? 30 : 30;
@@ -700,7 +895,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                     >
                       <span className="text-sm font-medium text-slate-800 flex-shrink-0 text-left">{topic?.title ?? w}</span>
                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-brand-accent rounded-full" style={{ width: `${pct}%` }} />
+                        <div className={`h-full rounded-full ${theme.progressBar}`} style={{ width: `${pct}%` }} />
                       </div>
                       <span className="font-mono text-xs text-slate-500 w-12 text-right">{pct}%</span>
                     </button>
@@ -712,7 +907,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
         )}
 
         {/* Recent threads */}
-        {recent.length > 0 && (
+        {filteredRecent.length > 0 && (
           <section className="mb-10">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-3.5 h-3.5 text-slate-500" />
@@ -721,11 +916,11 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
               </h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {recent.map(r => (
+              {filteredRecent.map(r => (
                 <button
                   key={r.topicId}
                   onClick={() => r.topic && onPickTopic(r.topic)}
-                  className="text-left bg-white border border-slate-200 rounded-xl p-4 hover:border-brand-accent/30 transition group"
+                  className={`text-left bg-white border border-slate-200 rounded-xl p-4 transition group ${theme.accentHoverBorder}`}
                 >
                   <div className="text-[10px] font-mono font-semibold text-slate-400 tracking-widest uppercase mb-1.5">
                     {r.at.toLocaleDateString("ms-MY", { day: "numeric", month: "short" })}
@@ -753,7 +948,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {insights.map((it, i) => (
                 <div key={i} className="bg-white border border-slate-200 rounded-xl p-5">
-                  <div className="text-[10px] font-mono font-semibold text-brand-accent tracking-widest uppercase mb-2">
+                  <div className={`text-[10px] font-mono font-semibold tracking-widest uppercase mb-2 ${theme.accentText}`}>
                     {it.topic}
                   </div>
                   <div className="text-sm text-slate-700 leading-relaxed">
@@ -780,10 +975,10 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                 </p>
               </div>
               <h2 className="font-display text-3xl font-black text-slate-900 tracking-tight">
-                🎛️ Cikgu Kimia Admin Console
+                🎛️ Cikgu {activeSubjectObj.codename} Admin Console
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Uruskan akses pelajar, muat naik ke pangkalan memori pengetahuan AI (RAG), dan cipta soalan peperiksaan bertindak balas pintar.
+                Uruskan akses pelajar, muat naik ke pangkalan memori pengetahuan AI (RAG) untuk subjek {activeSubjectObj.codename}, dan cipta soalan peperiksaan bertindak balas pintar.
               </p>
             </div>
 
@@ -799,13 +994,13 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                 onClick={() => setAdminTab("knowledge")}
                 className={`pb-3 px-5 font-bold border-b-2 transition shrink-0 tracking-wide ${adminTab === "knowledge" ? "border-slate-950 text-slate-950" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
-                🧠 RUJUKAN RAG PINTAR ({customFacts.length})
+                🧠 RUJUKAN RAG PINTAR ({filterBySubject ? filteredCustomFacts.length : customFacts.length})
               </button>
               <button
                 onClick={() => setAdminTab("exams")}
                 className={`pb-3 px-5 font-bold border-b-2 transition shrink-0 tracking-wide ${adminTab === "exams" ? "border-slate-950 text-slate-950" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
-                ✍️ SOALAN PEPERIKSAAN ({customExams.length})
+                ✍️ SOALAN PEPERIKSAAN ({filterExamsBySubject ? filteredCustomExams.length : customExams.length})
               </button>
             </div>
 
@@ -921,11 +1116,14 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
                   <div>
-                    <h3 className="font-display text-lg font-bold text-slate-900">
+                    <h3 className="font-display text-lg font-bold text-slate-900 flex flex-wrap items-center gap-2">
                       RAG Knowledge Base & Custom Memori Cikgu
+                      <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full font-bold text-white bg-gradient-to-r ${activeSubjectObj.colorClass || "from-slate-950 to-slate-800"}`}>
+                        {activeSubjectObj.codename}
+                      </span>
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Tambat memori konseptual atau key points tertentu untuk soalan KSSM.
+                      Tambat memori konseptual atau key points tertentu untuk soalan KSSM subjek {activeSubjectObj.codename}.
                     </p>
                   </div>
                   {!showFactForm && (
@@ -978,7 +1176,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                                 setIdInput("");
                                 setTitleInput("");
                               } else {
-                                const found = SYLLABUS_TOPICS.find(t => t.id === val);
+                                const found = ALL_TOPICS.find(t => t.id === val);
                                 if (found) {
                                   setIdInput(found.id);
                                   setTitleInput(found.title);
@@ -989,8 +1187,8 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                             className="w-full px-3.5 py-2.5 bg-white border border-blue-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition"
                           >
                             <option value="custom">-- Bina ID Dan Bab Baru (Kunci Kira Manual) --</option>
-                            {SYLLABUS_TOPICS.map(t => (
-                              <option key={t.id} value={t.id}>Tingkatan {t.form} — Bab {t.id.split('-c')[1]}: {t.title}</option>
+                            {ALL_TOPICS.filter(t => isTopicInActiveSubject(t.id)).map(t => (
+                              <option key={t.id} value={t.id}>Tajuk: Tingkatan {t.form} — Bab {t.id.replace(/^f\d-[cpb]/, "")}: {t.title}</option>
                             ))}
                           </select>
                           <p className="text-[10px] text-blue-600/70 mt-1">Menggunakan pilihan ini akan menetapkan ID & Tajuk secara automatik bersesuaian dengan struktur index data.</p>
@@ -1216,20 +1414,33 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
                 {/* Facts list */}
                 <div className="bg-white border text-left border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <span className="text-[10px] font-mono font-bold text-slate-500 tracking-widest uppercase">
-                      SENARAI MEMORI CUSTOM ({customFacts.length})
+                      SENARAI MEMORI CUSTOM ({filteredCustomFacts.length} / {customFacts.length})
                     </span>
-                    {loadingFacts && <span className="text-[10px] font-mono text-slate-400">Memuatkan...</span>}
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-slate-600 flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={filterBySubject}
+                          onChange={(e) => setFilterBySubject(e.target.checked)}
+                          className="rounded border-slate-300 text-slate-950 focus:ring-slate-950"
+                        />
+                        <span>Tapis untuk {activeSubjectObj.codename} sahaja</span>
+                      </label>
+                      {loadingFacts && <span className="text-[10px] font-mono text-slate-400">Memuatkan...</span>}
+                    </div>
                   </div>
 
-                  {customFacts.length === 0 ? (
+                  {filteredCustomFacts.length === 0 ? (
                     <div className="p-8 text-center text-slate-400 text-xs">
-                      Tiada rujukan adat ditambah dalam pangkalan data. Klik butang di atas untuk mendaftarkan nota pintar yang baru!
+                      {filterBySubject 
+                        ? `Tiada rujukan untuk subjek ${activeSubjectObj.codename} ditemui. Nyah-tapis kotak di atas untuk melihat subjek lain.`
+                        : "Tiada rujukan adat ditambah dalam pangkalan data. Klik butang di atas untuk mendaftarkan nota pintar yang baru!"}
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-                      {customFacts.map((f, i) => (
+                      {filteredCustomFacts.map((f, i) => (
                         <div key={i} className="p-5 flex flex-col sm:flex-row items-start justify-between gap-4 hover:bg-slate-50/50 transition">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1.5">
@@ -1529,7 +1740,7 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
                             className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-slate-950 focus:bg-white transition"
                           >
                             <option value="general">Umum / Semua Bab (General)</option>
-                            {SYLLABUS_TOPICS.map(t => (
+                            {ALL_TOPICS.filter(t => isTopicInActiveSubject(t.id)).map(t => (
                               <option key={t.id} value={t.id}>Tingkatan {t.form} — {t.title}</option>
                             ))}
                           </select>
@@ -1601,20 +1812,33 @@ export function Dashboard({ onPickTopic, onUpgradeClick }: DashboardProps) {
 
                 {/* Exam questions list */}
                 <div className="bg-white border text-left border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <span className="text-[10px] font-mono font-bold text-slate-500 tracking-widest uppercase">
-                      SENARAI SOALAN PEPERIKSAAN AKTIF ({customExams.length})
+                      SENARAI SOALAN PEPERIKSAAN AKTIF ({filteredCustomExams.length} / {customExams.length})
                     </span>
-                    {loadingExams && <span className="text-[10px] font-mono text-slate-400">Memuatkan...</span>}
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-slate-600 flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={filterExamsBySubject}
+                          onChange={(e) => setFilterExamsBySubject(e.target.checked)}
+                          className="rounded border-slate-300 text-slate-950 focus:ring-slate-950"
+                        />
+                        <span>Tapis untuk {activeSubjectObj.codename} sahaja</span>
+                      </label>
+                      {loadingExams && <span className="text-[10px] font-mono text-slate-400">Memuatkan...</span>}
+                    </div>
                   </div>
 
-                  {customExams.length === 0 ? (
+                  {filteredCustomExams.length === 0 ? (
                     <div className="p-8 text-center text-slate-400 text-xs">
-                      Tiada soalan peperiksaan tersuai ditambah dalam pangkalan data. Klik butang "+ Bina Soalan Peperiksaan Baru" untuk mendaftarkan soalan yang tersusun!
+                      {filterExamsBySubject
+                        ? `Tiada soalan peperiksaan untuk subjek ${activeSubjectObj.codename} ditemui. Nyah-tapis kotak di atas untuk melihat subjek lain.`
+                        : "Tiada soalan peperiksaan tersuai ditambah dalam pangkalan data. Klik butang \"+ Bina Soalan Peperiksaan Baru\" untuk mendaftarkan soalan yang tersusun!"}
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-                      {customExams.map((ex, i) => (
+                      {filteredCustomExams.map((ex, i) => (
                         <div key={i} className="p-5 flex flex-col sm:flex-row items-start justify-between gap-4 hover:bg-slate-50/50 transition">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1.5">
